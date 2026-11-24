@@ -1,6 +1,6 @@
 # PS5 Native App Boilerplate
 
-[![Build](https://github.com/blackbearreloaded/ps5-native-app-boilerplate/actions/workflows/tooling.yml/badge.svg)](https://github.com/blackbearreloaded/ps5-native-app-boilerplate/actions/workflows/tooling.yml)
+[![Build](https://github.com/ursonegro/ps5-native-app-boilerplate/actions/workflows/tooling.yml/badge.svg)](https://github.com/ursonegro/ps5-native-app-boilerplate/actions/workflows/tooling.yml)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
 
 Build modern C++20 homebrew applications for PlayStation 5 from Linux, WSL, or
@@ -80,13 +80,13 @@ clean history. The same workflow is available through the GitHub CLI:
 
 ```bash
 gh repo create my-ps5-app \
-  --template blackbearreloaded/ps5-native-app-boilerplate \
-  --public \
+  --template ursonegro/ps5-native-app-boilerplate \
+  --private \
   --clone
 ```
 
-Use `--private` instead of `--public` when appropriate. Fork this repository
-only when preparing a contribution back to the boilerplate. A direct clone is
+The template is private. Run the command from a GitHub account with access to
+it. Fork this repository when preparing a contribution back to the boilerplate. A direct clone is
 best reserved for temporary local experiments because it retains the
 boilerplate remote and history.
 
@@ -261,16 +261,16 @@ git tag 01.002.003
 git push origin 01.002.003
 ```
 
-Pushing the tag is how a release is made: the workflow rejects a tag that differs from
-`contentVersion`, then builds, attests and publishes the app-folder ZIP and its `SHA256SUMS`
-under that version. Release files are not attached by hand. If no release exists for the tag,
-the workflow creates it; if one exists without a ZIP (notes written in advance, or a draft), it
-adds the two files and leaves the title and notes alone; if one already has a ZIP, nothing is
-replaced and the run ends with a warning. The ZIP contains
-the complete application and generated `libc.prx`. A release ZIP built by the workflow can be
-checked with `gh attestation verify <ZIP> -R blackbearreloaded/ps5-native-app-boilerplate`
-(GitHub CLI); this covers releases built by GitHub Actions from now on, not earlier ones. See [Application
-configuration](docs/CONFIGURATION.md) for every metadata field.
+Pushing the tag starts the release workflow. It checks that the tag matches
+`contentVersion`, builds the app folder ZIP, and publishes it with its `SHA256SUMS`.
+The workflow creates a missing release or adds assets to a release that has no ZIP.
+An existing release ZIP is kept. The ZIP contains the application and generated
+`libc.prx`.
+
+Check a downloaded ZIP with `sha256sum -c SHA256SUMS` from the folder containing both
+files. The workflow also attests eligible public builds. For those builds, use
+`gh attestation verify <ZIP> -R ursonegro/ps5-native-app-boilerplate`.
+See [Application configuration](docs/CONFIGURATION.md) for metadata fields.
 
 The target uses C++20 with exceptions and RTTI disabled. Allocation-free
 facilities such as `std::array`, `std::span`, and `std::string_view` are
