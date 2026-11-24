@@ -27,6 +27,18 @@ From the repository root, run the read-only host check:
 make doctor
 ```
 
+### macOS
+
+On Apple Silicon, run the renderer and update-check host suites with Homebrew LLVM 18
+and Ninja. The macOS host tests workflow runs these same targets on the arm64 runner
+and logs the compiler version and renderer link command.
+
+```bash
+brew install llvm@18 ninja
+export PATH="$(brew --prefix llvm@18)/bin:$PATH"
+make USE_CCACHE=0 test-unit test-update-check
+```
+
 ## 2. Native dependencies
 
 The first build downloads the pinned public

@@ -17,7 +17,6 @@
 #include <new>
 #include <span>
 #include <string_view>
-#include <utility>
 
 extern "C"
 {
@@ -31,9 +30,6 @@ extern "C"
                                          int blocking);
     int sceKernelUsleep(std::uint32_t microseconds);
     int sceSystemServiceHideSplashScreen();
-    int open(const char *path, int flags, ...);
-    long read(int descriptor, void *buffer, std::size_t size);
-    int close(int descriptor);
     int sceVideoOutOpen(std::int32_t user_id, std::int32_t bus_type, std::int32_t index,
                         const void *param);
     int sceVideoOutSetFlipRate(std::int32_t handle, std::int32_t rate);
@@ -115,58 +111,6 @@ constexpr std::array<Glyph, 42> glyphs{{
     {'W', {17, 17, 17, 21, 21, 21, 10}}, {'X', {17, 17, 10, 4, 10, 17, 17}},
     {'Y', {17, 17, 10, 4, 4, 4, 4}},     {'Z', {31, 1, 2, 4, 8, 16, 31}},
 }};
-
-class File final
-{
-  public:
-    explicit File(int descriptor = -1) noexcept : descriptor_{descriptor}
-    {
-    }
-
-    ~File()
-    {
-        reset();
-    }
-
-    File(const File &) = delete;
-    File &operator=(const File &) = delete;
-
-    File(File &&other) noexcept : descriptor_{std::exchange(other.descriptor_, -1)}
-    {
-    }
-
-    File &operator=(File &&other) noexcept
-    {
-        if (this != &other)
-        {
-            reset();
-            descriptor_ = std::exchange(other.descriptor_, -1);
-        }
-        return *this;
-    }
-
-    [[nodiscard]] bool valid() const noexcept
-    {
-        return descriptor_ >= 0;
-    }
-
-    [[nodiscard]] int get() const noexcept
-    {
-        return descriptor_;
-    }
-
-  private:
-    void reset() noexcept
-    {
-        if (descriptor_ >= 0)
-        {
-            (void)close(descriptor_);
-            descriptor_ = -1;
-        }
-    }
-
-    int descriptor_;
-};
 
 class LifetimeProbe final
 {
@@ -364,24 +308,6 @@ void Canvas::text(unsigned x, unsigned y, std::string_view value, unsigned scale
                   Color color) noexcept
 {
     draw_text(pixels_, x, y, value, scale, color);
-}
-
-void read_asset_text(const char *path, std::span<char> destination,
-                     std::string_view fallback) noexcept
-{
-    copy_message(destination, fallback);
-    File descriptor{open(path, 0)};
-    if (!descriptor.valid() || destination.empty())
-        return;
-
-    const long count = read(descriptor.get(), destination.data(), destination.size() - 1);
-    if (count <= 0)
-        return;
-
-    std::size_t length = static_cast<std::size_t>(count);
-    while (length > 0 && (destination[length - 1] == '\r' || destination[length - 1] == '\n'))
-        --length;
-    destination[length] = '\0';
 }
 
 [[noreturn]] void run(DrawScene draw, std::string_view ready_message) noexcept

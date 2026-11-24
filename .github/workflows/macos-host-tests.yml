@@ -1,0 +1,46 @@
+# ps5-native-app-boilerplate - Host-only tests on Apple Silicon.
+# Copyright (C) 2026 BlackBearReloaded
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: macOS host tests
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/macos-host-tests.yml"
+      - "Makefile"
+      - "src/**"
+      - "tests/test_demo_renderer.cpp"
+      - "tests/test_update_check.cpp"
+      - "examples/update-check/**"
+      - "tools/build-tests.sh"
+      - "tools/ninja-build.sh"
+      - "tools/setup-test-dependencies.sh"
+      - "tools/macos/**"
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: macos-15
+    timeout-minutes: 25
+    env:
+      USE_CCACHE: 0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Configure the arm64 toolchain
+        run: |
+          test "$(uname -m)" = arm64
+          brew install llvm@18 ninja
+          echo "$(brew --prefix llvm@18)/bin" >> "$GITHUB_PATH"
+      - name: Run the renderer and update-check tests
+        run: |
+          set -e
+          clang++ --version
+          make test-unit
+          link=$(ninja -f build/tests/build.ninja -t commands | tail -n 1)
+          printf '%s\n' "$link"
+          [[ $link != *--gc-sections* ]]
+          make test-update-check
