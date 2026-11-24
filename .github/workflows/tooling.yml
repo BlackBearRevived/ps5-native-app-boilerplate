@@ -16,6 +16,10 @@ on:
         description: "Also publish this run's compiler cache as the build-cache snapshot (run it on main)"
         type: boolean
         default: false
+      cache_only:
+        description: "Verify the compiler cache with the default app build and a fresh compiler cache"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -63,6 +67,7 @@ jobs:
           key: deps-${{ runner.os }}-${{ runner.arch }}-ubuntu24-python313-${{ hashFiles('tools/setup-*-dependencies.sh') }}
 
       - name: Restore compiler cache
+        if: ${{ !inputs.cache_only }}
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .deps/ccache
@@ -74,16 +79,35 @@ jobs:
       # nothing was restored, start from the snapshot kept as a file of the build-cache release;
       # a manual run on main with "snapshot" ticked replaces that file (build-cache.yml).
       - name: Fetch the compiler cache snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if [ -z "$(ls -A "$CCACHE_DIR" 2>/dev/null)" ]; then
-            url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/build-cache/ccache-clang18.tar"
-            if curl -fsSL --retry 3 -o "$RUNNER_TEMP/ccache-clang18.tar" "$url"; then
-              mkdir -p "$CCACHE_DIR"
-              tar -xf "$RUNNER_TEMP/ccache-clang18.tar" -C "$CCACHE_DIR"
-              rm "$RUNNER_TEMP/ccache-clang18.tar"
-              echo "::notice title=Compiler cache::Started from the build-cache snapshot."
-            fi
+          if [ -n "$(ls -A "$CCACHE_DIR" 2>/dev/null)" ]; then
+            exit 0
           fi
+          asset_name=ccache-clang18.tar
+          if ! asset=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/build-cache" \
+              --jq '.assets[] | select(.name == "ccache-clang18.tar") | .id' 2>&1); then
+            if [[ $asset == *"HTTP 404"* ]]; then
+              echo "::notice title=Compiler cache::No build-cache release exists. Starting cold."
+            else
+              echo "::warning title=Compiler cache::Could not look up the snapshot. Starting cold."
+              printf '%s\n' "$asset"
+            fi
+            exit 0
+          fi
+          if [ -z "$asset" ]; then
+            echo "::notice title=Compiler cache::No snapshot asset exists. Starting cold."
+            exit 0
+          fi
+          if ! gh api -H 'Accept: application/octet-stream' \
+              "repos/$GITHUB_REPOSITORY/releases/assets/$asset" > "$RUNNER_TEMP/$asset_name"; then
+            echo "::warning title=Compiler cache::Snapshot download failed. Starting cold."
+            exit 0
+          fi
+          mkdir -p "$CCACHE_DIR"
+          tar -xf "$RUNNER_TEMP/$asset_name" -C "$CCACHE_DIR"
+          echo "::notice title=Compiler cache::Restored $asset_name (asset $asset)."
 
       - name: Configure parallel compilation
         run: |
@@ -133,9 +157,11 @@ jobs:
         run: make test-integration
 
       - name: Check Lapy cooperative elevation client
+        if: ${{ !inputs.cache_only }}
         run: make test-elevation
 
       - name: Build filesystem capability example
+        if: ${{ !inputs.cache_only }}
         run: |
           make sandbox-elevation-example
           test ! -e dist/PPSA99790/assets
@@ -144,6 +170,7 @@ jobs:
         run: make test-update-check
 
       - name: Build update-check example
+        if: ${{ !inputs.cache_only }}
         run: |
           make update-check-example
           test -f dist/PPSA99780/assets/targets.txt
@@ -152,6 +179,7 @@ jobs:
         run: make test-self-update
 
       - name: Build self-update example
+        if: ${{ !inputs.cache_only }}
         run: |
           make self-update-example
           test -f dist/PPSA99782/self-updater.elf

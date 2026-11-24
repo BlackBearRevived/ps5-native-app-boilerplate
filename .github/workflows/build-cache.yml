@@ -15,6 +15,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: publish-compiler-cache
+  cancel-in-progress: false
+
 jobs:
   snapshot:
     name: Publish the compiler cache snapshot
@@ -32,8 +36,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
-          if ! gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name ccache-snapshot --dir snapshot; then
-            echo "That run kept no snapshot (the box was not ticked)."
+          set -euo pipefail
+          artifact=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts?name=ccache-snapshot" \
+            --jq '.artifacts[] | select(.expired == false) | .id')
+          if [ -z "$artifact" ]; then
+            echo "That run kept no compiler cache snapshot."
             exit 0
           fi
-          gh release upload build-cache "snapshot/ccache-clang18.tar" --clobber --repo "$GITHUB_REPOSITORY"
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name ccache-snapshot --dir snapshot
+          file=snapshot/ccache-clang18.tar
+          test -s "$file"
+
+          if release=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/build-cache" 2>&1); then
+            gh release upload build-cache "$file" --clobber --repo "$GITHUB_REPOSITORY"
+          elif [[ $release == *"HTTP 404"* ]]; then
+            gh release create build-cache "$file" --repo "$GITHUB_REPOSITORY" \
+              --verify-tag --prerelease --title "Compiler cache snapshot" \
+              --notes "Compiler cache for the default branch build workflow."
+          else
+            printf '%s\n' "$release" >&2
+            exit 1
+          fi
