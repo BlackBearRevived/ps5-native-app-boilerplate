@@ -8,6 +8,7 @@
  */
 
 #include "demo_renderer.hpp"
+#include "frame_submission.hpp"
 
 #include <array>
 #include <cstddef>
@@ -447,21 +448,32 @@ void read_asset_text(const char *path, std::span<char> destination,
     if (sceVideoOutSubmitFlip(video, 0, 1, 1) < 0)
         halt("Hello World: initial flip failed");
 
-    (void)sceVideoOutWaitVblank(video);
+    if (sceVideoOutWaitVblank(video) < 0)
+        halt("Hello World: initial vblank failed");
     notify(ready_message);
 
-    // Each frame is drawn whole into the buffer that isn't on screen, then shown.
     if (every_frame)
-        for (std::int64_t frame = 2;; ++frame)
+    {
+        detail::FrameSubmission submission;
+        for (;;)
         {
-            const std::size_t back = static_cast<std::size_t>(frame & 1) ^ 1U;
-            Canvas canvas{static_cast<std::uint32_t *>(buffers[back].data)};
-            draw(canvas);
-            flush_range(buffers[back].data, frame_bytes);
-            if (sceVideoOutSubmitFlip(video, static_cast<std::int32_t>(back), 1, frame) < 0)
-                (void)sceKernelUsleep(4000); // the previous flip is still queued
-            (void)sceVideoOutWaitVblank(video);
+            const bool presented = submission.present_next(
+                [&](int buffer)
+                {
+                    auto &back = buffers[static_cast<std::size_t>(buffer)];
+                    Canvas canvas{static_cast<std::uint32_t *>(back.data)};
+                    draw(canvas);
+                    flush_range(back.data, frame_bytes);
+                },
+                [&](int buffer, std::uint64_t frame) {
+                    return sceVideoOutSubmitFlip(video, buffer, 1,
+                                                 static_cast<std::int64_t>(frame)) >= 0;
+                },
+                [&] { return sceVideoOutWaitVblank(video) >= 0; });
+            if (!presented)
+                halt("Hello World: frame presentation failed");
         }
+    }
 
     // Returning from main or calling exit crashes this launch context.
     for (;;)
