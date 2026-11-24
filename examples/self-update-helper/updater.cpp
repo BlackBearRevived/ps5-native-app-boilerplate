@@ -23,6 +23,7 @@
 #include <memory>
 #include <mutex>
 #include <pthread.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -455,43 +456,198 @@ int title_running(const std::string &sandboxes, const std::string &title)
     return kind(sandboxes + "/" + title + "_000") == Kind::absent ? -1 : 1;
 }
 
-bool swap_entries(const std::string &target, const std::string &staged, const std::string &backup)
+namespace
 {
-    std::vector<std::string> present, new_names;
-    if (!list_entries(target, kChildren, present) || !list_entries(staged, kChildren, new_names) ||
-        new_names.empty() || mkdir(backup.c_str(), 0755) != 0)
+constexpr std::size_t kJournalLimit = 2 * 1024 * 1024;
+
+std::string parent(const std::string &path)
+{
+    return path.substr(0, path.rfind('/'));
+}
+
+bool save_journal(const std::string &path, const std::string &body)
+{
+    const int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+    if (fd < 0)
         return false;
-    // Move aside only entries the release replaces. Unlisted top-level files
-    // belong to the installation or user and stay in place.
-    std::vector<std::string> old_names;
-    for (const auto &name : present)
-        if (std::find(new_names.begin(), new_names.end(), name) != new_names.end())
-            old_names.push_back(name);
-    std::size_t moved = 0, placed = 0;
-    bool ok = true;
-    for (; ok && moved < old_names.size(); ++moved)
-        ok = rename((target + "/" + old_names[moved]).c_str(),
-                    (backup + "/" + old_names[moved]).c_str()) == 0;
-    if (!ok)
-        --moved; // the one that failed was not moved
-    for (; ok && placed < new_names.size(); ++placed)
-        ok = rename((staged + "/" + new_names[placed]).c_str(),
-                    (target + "/" + new_names[placed]).c_str()) == 0;
-    if (!ok && placed)
-        --placed;
-    if (ok)
+    std::size_t done = 0;
+    while (done < body.size())
     {
-        (void)sync_directory(target);
-        return true;
+        const auto count = write(fd, body.data() + done, body.size() - done);
+        if (count < 0 && errno == EINTR)
+            continue;
+        if (count <= 0)
+            break;
+        done += static_cast<std::size_t>(count);
     }
-    // Back to how it was: the new entries return to staged, the old ones to target.
-    for (std::size_t i = 0; i < placed; ++i)
-        (void)rename((target + "/" + new_names[i]).c_str(), (staged + "/" + new_names[i]).c_str());
-    for (std::size_t i = 0; i < moved; ++i)
-        (void)rename((backup + "/" + old_names[i]).c_str(), (target + "/" + old_names[i]).c_str());
-    (void)rmdir(backup.c_str());
-    (void)sync_directory(target);
-    return false;
+    const bool saved = done == body.size() && fsync(fd) == 0;
+    return close(fd) == 0 && saved && sync_directory(parent(path));
+}
+
+bool load_journal(const std::string &path, std::string &target, std::vector<std::string> &names)
+{
+    std::string body;
+    if (!read_small(path, kJournalLimit, body))
+        return false;
+    const auto first = body.find('\0');
+    if (first == std::string::npos || first == 0)
+        return false;
+    target = body.substr(0, first);
+    for (auto start = first + 1; start < body.size();)
+    {
+        const auto end = body.find('\0', start);
+        if (end == std::string::npos || names.size() >= kChildren)
+            return false;
+        const auto name = body.substr(start, end - start);
+        if (name.empty() || name == "." || name == ".." || name.find('/') != std::string::npos ||
+            std::find(names.begin(), names.end(), name) != names.end())
+            return false;
+        names.push_back(name);
+        start = end + 1;
+    }
+    return !names.empty();
+}
+
+bool sync_swap(const std::string &target, const std::string &staged, const std::string &backup)
+{
+    return sync_directory(target) && sync_directory(staged) && sync_directory(backup);
+}
+
+bool allowed_recovery_target(const Environment &environment, const std::string &drive,
+                             const std::string &title, const std::string &target)
+{
+    if (drive_root({drive}, target).empty() || kind(target) != Kind::directory ||
+        target.find("/../") != std::string::npos || target.find("/./") != std::string::npos ||
+        target.ends_with("/..") || target.ends_with("/.") || target.ends_with('/'))
+        return false;
+    std::string mounted;
+    return (mounted_source(environment, title, mounted) == 1 && mounted == target) ||
+           std::find(environment.roots.begin(), environment.roots.end(), parent(target)) !=
+               environment.roots.end();
+}
+
+class DriveLock
+{
+  public:
+    explicit DriveLock(const std::string &drive)
+        : descriptor_(open(drive.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW))
+    {
+    }
+    ~DriveLock()
+    {
+        if (descriptor_ >= 0)
+            close(descriptor_);
+    }
+    DriveLock(const DriveLock &) = delete;
+    DriveLock &operator=(const DriveLock &) = delete;
+
+    bool acquire() const
+    {
+        return descriptor_ >= 0 && flock(descriptor_, LOCK_EX | LOCK_NB) == 0;
+    }
+
+  private:
+    int descriptor_;
+};
+} // namespace
+
+SwapResult recover_entries(const std::string &target, const std::string &staged,
+                           const std::string &backup, std::string &error, RenameEntry move)
+{
+    if (!move)
+        move = std::rename;
+    const auto journal = backup + ".pending";
+    std::string recorded;
+    std::vector<std::string> names;
+    if (kind(journal) == Kind::absent && load_journal(backup + ".restored", recorded, names) &&
+        recorded == target)
+        return SwapResult::restored;
+    recorded.clear();
+    names.clear();
+    if (!load_journal(journal, recorded, names) || recorded != target ||
+        kind(staged) != Kind::directory || kind(backup) != Kind::directory)
+    {
+        error = "The update journal or its folders could not be read";
+        return SwapResult::recovery_needed;
+    }
+
+    error.clear();
+    for (const auto &name : names)
+    {
+        const auto live = target + "/" + name;
+        const auto next = staged + "/" + name;
+        const auto old = backup + "/" + name;
+        const auto next_kind = kind(next);
+        const auto old_kind = kind(old);
+        // A missing staged name means the new entry was promoted. Put it back
+        // before restoring the old entry so a restart can repeat either step.
+        if (next_kind == Kind::unknown || old_kind == Kind::unknown ||
+            (next_kind == Kind::absent && move(live.c_str(), next.c_str()) != 0) ||
+            (old_kind != Kind::absent &&
+             (kind(live) != Kind::absent || move(old.c_str(), live.c_str()) != 0)))
+        {
+            if (!error.empty())
+                error += ", ";
+            error += name;
+        }
+    }
+    if (!error.empty())
+        return SwapResult::recovery_needed;
+    if (!sync_swap(target, staged, backup) ||
+        rename(journal.c_str(), (backup + ".restored").c_str()) != 0 ||
+        !sync_directory(parent(backup)))
+    {
+        error = "The restored files could not be confirmed on disk";
+        return SwapResult::recovery_needed;
+    }
+    return SwapResult::restored;
+}
+
+SwapResult swap_entries(const std::string &target, const std::string &staged,
+                        const std::string &backup, std::string &error, RenameEntry move)
+{
+    if (!move)
+        move = std::rename;
+    std::vector<std::string> names;
+    if (!list_entries(staged, kChildren, names) || names.empty() ||
+        mkdir(backup.c_str(), 0700) != 0)
+        return SwapResult::restored;
+    std::sort(names.begin(), names.end());
+    const auto journal_body = [&]
+    {
+        std::string body = target;
+        body.push_back('\0');
+        for (const auto &name : names)
+        {
+            body += name;
+            body.push_back('\0');
+        }
+        return body;
+    }();
+    // The journal is durable before any installed name is moved.
+    const auto journal = backup + ".pending";
+    if (!save_journal(journal, journal_body))
+        return SwapResult::restored;
+    for (const auto &name : names)
+    {
+        const auto live = target + "/" + name;
+        const auto old = backup + "/" + name;
+        const auto next = staged + "/" + name;
+        const auto live_kind = kind(live);
+        if (live_kind == Kind::unknown ||
+            (live_kind != Kind::absent && (move(live.c_str(), old.c_str()) != 0 ||
+                                           !sync_directory(backup) || !sync_directory(target))) ||
+            move(next.c_str(), live.c_str()) != 0 || !sync_swap(target, staged, backup))
+            return recover_entries(target, staged, backup, error, move);
+    }
+    if (rename(journal.c_str(), (backup + ".applied").c_str()) != 0)
+        return recover_entries(target, staged, backup, error, move);
+    if (!sync_directory(parent(backup)))
+    {
+        error = "The update could not be confirmed on disk";
+        return SwapResult::recovery_needed;
+    }
+    return SwapResult::applied;
 }
 
 int run(const Environment &environment, const Io &io)
@@ -516,6 +672,51 @@ int run(const Environment &environment, const Io &io)
     }
     name = shown(name, 64, title);
     label = shown(label, 40, available);
+
+    // Inspect interrupted work before looking for param.json, which may be backed up.
+    for (const auto &drive : environment.drives)
+    {
+        const auto work = drive + "/self-update/" + title;
+        const auto backup = work + "/backup";
+        if (kind(backup) == Kind::absent)
+            continue;
+        const DriveLock lock(drive);
+        std::string target, error;
+        std::vector<std::string> names;
+        if (!lock.acquire())
+        {
+            session.say("fail Another update is using this drive\\n");
+            return 1;
+        }
+        if (kind(backup) == Kind::absent)
+            continue;
+        if (kind(backup + ".restored") == Kind::file)
+            continue;
+        if (kind(backup + ".applied") == Kind::file)
+        {
+            // A committed update may still have its only previous version here.
+            session.log("previous version retained at " + backup);
+            session.say("fail A previous version needs to be saved from " + backup + "\\n");
+            return 1;
+        }
+        const auto describes_title = [&](const std::string &folder)
+        {
+            std::string id, version;
+            return read_param(folder, id, version) && id == title;
+        };
+        if (!load_journal(backup + ".pending", target, names) ||
+            !allowed_recovery_target(environment, drive, title, target) ||
+            !same_filesystem(target, work) ||
+            !(describes_title(target) || describes_title(backup)) ||
+            title_running(environment.sandboxes, title) != 0 ||
+            recover_entries(target, work + "/staged", backup, error) != SwapResult::restored)
+        {
+            session.log("recovery required at " + backup + " " + error);
+            session.say("fail The previous update needs recovery from " + backup + "\\n");
+            return 1;
+        }
+        session.log("restored the previous installation from " + backup);
+    }
 
     // The one installed folder of the title, at the version that asked: the folder
     // ShadowMountPlus mounted it from when it recorded one (any scan path, its manual
@@ -549,18 +750,31 @@ int run(const Environment &environment, const Io &io)
         return 1;
     }
     const std::string target = copies[0].path;
-    if (copies[0].version != installed)
-    {
-        session.say("fail The installed files aren't the version that is running\n");
-        return 1;
-    }
     const std::string drive = drive_root(environment.drives, target);
     if (drive.empty())
     {
         session.say("fail The app is installed where it can't be updated\n");
         return 1;
     }
+    const DriveLock lock(drive);
+    if (!lock.acquire())
+    {
+        session.say("fail Another update is using this drive\\n");
+        return 1;
+    }
+    std::string installed_title, installed_version;
+    if (!read_param(target, installed_title, installed_version) || installed_title != title ||
+        installed_version != installed)
+    {
+        session.say("fail The installed files aren't the version that is running\n");
+        return 1;
+    }
     const std::string base = drive + "/self-update", work = base + "/" + title;
+    if (kind(work + "/backup") != Kind::absent && kind(work + "/backup.restored") != Kind::file)
+    {
+        session.say("fail The previous update needs recovery from " + work + "/backup\\n");
+        return 1;
+    }
     const std::string archive = work + "/update.zip", staged = work + "/staged";
     const auto clean = [&]
     {
@@ -678,7 +892,16 @@ int run(const Environment &environment, const Io &io)
     }
     session.sleep(environment.settle_ms);
 
-    if (!swap_entries(target, staged, work + "/backup"))
+    const auto result = swap_entries(target, staged, work + "/backup", error);
+    if (result == SwapResult::recovery_needed)
+    {
+        const auto path = work + "/backup";
+        session.log("update recovery required at " + path + " " + error);
+        if (environment.notify)
+            environment.notify(name + " needs update recovery. Backup: " + path);
+        return 1;
+    }
+    if (result == SwapResult::restored)
     {
         clean();
         session.log("the files could not be replaced; the app is as it was");
@@ -696,7 +919,13 @@ int run(const Environment &environment, const Io &io)
             move_tree(work + "/backup", kept))
             session.log("version " + installed + " is kept in " + kept);
         else
-            session.log("version " + installed + " could not be kept in " + kept);
+        {
+            session.log("version " + installed + " remains at " + work + "/backup");
+            if (environment.notify)
+                environment.notify(name + " was updated. Previous files remain at " + work +
+                                   "/backup");
+            return 0;
+        }
     }
     clean();
     session.log("updated " + title + " to " + available);

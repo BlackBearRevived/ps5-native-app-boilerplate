@@ -620,8 +620,8 @@ work folder and the console's `sce_sys` copies for that title.
 | The archive is refused, or isn't the listed version | The same |
 | The app doesn't close within two minutes of `apply` | The helper removes its work and notifies: "wasn't updated: it didn't close" |
 | A file can't be moved while replacing | The moves made so far are undone and the app is as it was; a notification says so |
-| The console loses power **during** the replacement | The one unprotected moment: the app's folder may be incomplete, and the app must be installed again. The replacement is a handful of renames, a fraction of a second |
-| The console loses power at any other time | A leftover `<drive>/self-update/<TITLEID>/` folder, removed by the next update attempt |
+| The console loses power **during** the replacement | The helper records the replacement before moving any installed file. When restarted for that title while it is closed, it restores the previous files before looking for the installed version. If recovery cannot finish, the helper reports the backup path and keeps the files for recovery. |
+| The console loses power at any other time | The next attempt removes leftover download or staging files. It keeps a backup whose recovery or archival is still pending. |
 
 ## The example title
 

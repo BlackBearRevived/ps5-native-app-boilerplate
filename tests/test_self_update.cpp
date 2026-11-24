@@ -776,28 +776,98 @@ void test_cancel_and_stuck_app()
     world = nullptr;
 }
 
+enum class SwapFault
+{
+    stage_first,
+    stage_second,
+    restore_first,
+    none
+};
+SwapFault swap_fault = SwapFault::none;
+
+int faulted_rename(const char *from, const char *to)
+{
+    const std::string source(from);
+    const bool first = source.ends_with("/staged/eboot.bin");
+    const bool second = source.ends_with("/staged/sce_sys");
+    if ((swap_fault == SwapFault::stage_first && first) ||
+        (swap_fault == SwapFault::stage_second && second) ||
+        (swap_fault == SwapFault::restore_first &&
+         (second || source.ends_with("/backup/eboot.bin"))))
+        return -1;
+    return std::rename(from, to);
+}
+
 void test_swap_rolls_back()
 {
+    using self_update::SwapResult;
     Console console;
-    const std::string staged = console.drive + "/staged", backup = console.drive + "/backup";
+    const std::string work = console.drive + "/self-update/" + title;
+    const std::string staged = work + "/staged", backup = work + "/backup";
+    CHECK(mkdir((console.drive + "/self-update").c_str(), 0755) == 0);
+    CHECK(mkdir(work.c_str(), 0755) == 0);
     CHECK(mkdir(staged.c_str(), 0755) == 0);
+    CHECK(mkdir((staged + "/sce_sys").c_str(), 0755) == 0);
     write_file(staged + "/eboot.bin", "new program");
-    // The app's folder can't be changed: nothing moves, and no backup is left behind.
-    CHECK(chmod(console.target.c_str(), 0555) == 0);
-    if (geteuid() != 0)
+    write_file(staged + "/sce_sys/param.json", param_json(title, "02.000.000"));
+    std::string error;
+
+    for (const auto fault : {SwapFault::stage_first, SwapFault::stage_second})
     {
-        CHECK(!self_update::swap_entries(console.target, staged, backup));
+        swap_fault = fault;
+        CHECK(self_update::swap_entries(console.target, staged, backup, error, faulted_rename) ==
+              SwapResult::restored);
         CHECK(read_file(console.target + "/eboot.bin") == "old program");
         CHECK(read_file(staged + "/eboot.bin") == "new program");
-        CHECK(self_update::kind(backup) == self_update::Kind::absent);
+        CHECK(unlink((backup + ".restored").c_str()) == 0);
+        CHECK(rmdir(backup.c_str()) == 0);
     }
-    CHECK(chmod(console.target.c_str(), 0755) == 0);
-    CHECK(self_update::swap_entries(console.target, staged, backup));
-    CHECK(read_file(console.target + "/eboot.bin") == "new program");
+
+    swap_fault = SwapFault::restore_first;
+    CHECK(self_update::swap_entries(console.target, staged, backup, error, faulted_rename) ==
+          SwapResult::recovery_needed);
+    CHECK(error == "eboot.bin");
     CHECK(read_file(backup + "/eboot.bin") == "old program");
+    CHECK(self_update::kind(backup + ".pending") == self_update::Kind::file);
+
+    // The helper must preserve the journal while the app is open. Once closed,
+    // it recovers before checking whether there is an update to receive.
+    const auto restart = [&]
+    {
+        std::string request = std::string(SELF_UPDATE_MAGIC) + "\nupdate\n" + title +
+                              "\n01.000.000\n02.000.000\n0\n" + std::string(64, 'a') +
+                              "\nTest App\n2\n";
+        std::string response;
+        const self_update::Io io{[&](void *out, std::size_t count)
+                                 {
+                                     const auto size = std::min(count, request.size());
+                                     std::memcpy(out, request.data(), size);
+                                     request.erase(0, size);
+                                     return static_cast<long>(size);
+                                 },
+                                 [&](const void *data, std::size_t count)
+                                 {
+                                     response.append(static_cast<const char *>(data), count);
+                                     return static_cast<long>(count);
+                                 }};
+        CHECK(self_update::run(console.environment, io) == 1);
+        return response;
+    };
+    CHECK(restart().find("needs recovery") != std::string::npos);
+    CHECK(read_file(backup + "/eboot.bin") == "old program");
+    console.close_app();
+    CHECK(restart().starts_with("ready\n"));
+    CHECK(read_file(console.target + "/eboot.bin") == "old program");
+    CHECK(restart().starts_with("ready\n"));
+    CHECK(read_file(console.target + "/eboot.bin") == "old program");
     CHECK(read_file(console.target + "/assets/old.txt") == "left over from the old version");
     CHECK(read_file(console.target + "/user-note.txt") == "keep me");
+    CHECK(self_update::kind(work) == self_update::Kind::absent);
+}
 
+void test_title_running()
+{
+    Console console;
     CHECK(self_update::title_running(console.sandboxes, title) == 1);
     console.close_app();
     CHECK(self_update::title_running(console.sandboxes, title) == 0);
@@ -859,6 +929,7 @@ int main()
     test_refusals();
     test_cancel_and_stuck_app();
     test_swap_rolls_back();
+    test_title_running();
     test_move_to_another_drive();
     if (failures != 0)
     {

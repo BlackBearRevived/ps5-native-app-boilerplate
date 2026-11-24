@@ -55,10 +55,21 @@ std::string drive_root(const std::vector<std::string> &drives, const std::string
 // 1: running, 0: not, -1: unknown.
 int title_running(const std::string &sandboxes, const std::string &title);
 
-// Puts every top-level entry of staged in target's place, moving target's own
-// entries to backup first. On failure target is as it was. Both folders must be
-// on target's filesystem; backup must not exist.
-bool swap_entries(const std::string &target, const std::string &staged, const std::string &backup);
+enum class SwapResult
+{
+    applied,
+    restored,
+    recovery_needed
+};
+using RenameEntry = int (*)(const char *, const char *);
+
+// Both folders must be on the same filesystem. An incomplete rollback keeps its
+// journal and backups. The optional rename function lets host tests inject I/O failures.
+SwapResult swap_entries(const std::string &target, const std::string &staged,
+                        const std::string &backup, std::string &error, RenameEntry move = nullptr);
+SwapResult recover_entries(const std::string &target, const std::string &staged,
+                           const std::string &backup, std::string &error,
+                           RenameEntry move = nullptr);
 
 // One whole conversation (kit/self_update_protocol.h). 0: the app was updated.
 int run(const Environment &environment, const Io &io);
