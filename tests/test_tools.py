@@ -459,6 +459,44 @@ fi
             self.assertEqual(result.returncode, 2, removed)
             self.assertIn("usage: tools/build.sh [Folder]", result.stderr)
 
+    def test_package_preserves_entry_contents_and_previous_archive_on_failure(self):
+        package_app = runpy.run_path(str(ROOT / "tools/package-app.py"))["package_app"]
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            app = parent / "PPSA12345"
+            (app / "empty").mkdir(parents=True)
+            (app / "assets").mkdir()
+            asset = app / "assets/large.bin"
+            with asset.open("wb") as stream:
+                for block in range(32):
+                    stream.write(bytes([block]) * (256 * 1024))
+            (app / "eboot.bin").write_bytes(b"example executable")
+            old = parent / "old.zip"
+            subprocess.run(
+                ["python3", "-m", "zipfile", "-c", str(old), app.name], cwd=parent, check=True
+            )
+
+            current = parent / (app.name + ".zip")
+            self.assertEqual(package_app(app, current), 5)
+            with zipfile.ZipFile(old) as reference, zipfile.ZipFile(current) as archive:
+                self.assertEqual(reference.namelist(), archive.namelist())
+                self.assertIsNone(archive.testzip())
+                for info in archive.infolist():
+                    self.assertEqual(info.create_system, 3)
+                    self.assertEqual((info.external_attr >> 16) & 0o777, 0o777)
+                    with reference.open(info.filename) as before, archive.open(info) as after:
+                        self.assertEqual(
+                            hashlib.sha256(before.read()).digest(),
+                            hashlib.sha256(after.read()).digest(),
+                        )
+
+            valid = current.read_bytes()
+            (app / "missing-link").symlink_to(app / "absent")
+            with self.assertRaises(FileNotFoundError):
+                package_app(app, current)
+            self.assertEqual(current.read_bytes(), valid)
+            self.assertEqual(list(parent.glob(f".{current.name}.*")), [])
+
 
 if __name__ == "__main__":
     unittest.main()

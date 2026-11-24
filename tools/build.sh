@@ -334,9 +334,8 @@ done
 "$tool" self --inspect --file "$app/eboot.bin"
 
 printf '==> [zip] Archiving the application folder\n'
-(cd "$dist" && python3 -m zipfile -c "$title_id.zip" "$title_id")
-# Every entry stored as 0777: the console only starts an app whose files are open to all.
-python3 "$root/tools/zip-open-modes.py" "$dist/$title_id.zip"
+# The console requires the archived application files to be open to every user.
+python3 "$root/tools/package-app.py" "$app" "$dist/$title_id.zip"
 
 printf 'Build complete.\nApp folder: %s\n' "$app"
 printf 'Folder ZIP: %s\n' "$dist/$title_id.zip"

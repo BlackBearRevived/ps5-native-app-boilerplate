@@ -14,9 +14,10 @@ make app
 The release workflow uses Python's standard-library `zipfile` module to archive
 `dist/<TITLE_ID>/` as `<TITLE_ID>.zip`. The ZIP is a distribution convenience,
 not another console filesystem format; extract it before directory deployment.
-Every entry is stored with permissions `0777` (`tools/zip-open-modes.py`): the console only
-starts an app whose files are open to every user, and some tools keep a ZIP's permissions when
-they unpack it.
+The packaging tool (`tools/package-app.py`) streams files into the archive and sets
+every entry to `0777` as it writes. The console requires accessible files and some
+extractors preserve the archived mode. The tool checks permissions and CRCs before
+replacing the previous ZIP.
 
 Once the ZIP is final, the workflow signs a build-provenance attestation for it (the
 `Attest the release ZIP` step, `actions/attest`): a record, kept by GitHub, that this exact
