@@ -44,17 +44,69 @@ ranlib=$(command -v llvm-ranlib-18 || command -v llvm-ranlib || command -v ranli
 }
 
 mkdir -p "$cache"
-if ! $skip_sdk && [[ ! -x "$sdk/bin/prospero-lld" ]]; then
+sdk_complete() {
+    local installation=$1
+    [[ -x $installation/bin/prospero-lld && -d $installation/target/include ]] || return 1
+    # A header can be missing even when extraction reached the linker.
+    python3 - "$archive" "$installation" <<'PYTHON'
+from pathlib import Path
+import sys
+import zipfile
+
+archive, installation = map(Path, sys.argv[1:])
+with zipfile.ZipFile(archive) as package:
+    for entry in package.infolist():
+        path = installation / Path(entry.filename).relative_to("ps5-payload-sdk")
+        if entry.is_dir():
+            present = path.is_dir()
+        else:
+            present = path.is_file() or path.is_symlink()
+        if not present:
+            sys.exit(1)
+PYTHON
+}
+
+if ! $skip_sdk; then
+    for command in flock python3; do
+        command -v "$command" >/dev/null || {
+            echo "missing required command: $command" >&2
+            exit 2
+        }
+    done
+    # Lock the complete bootstrap so clean concurrent starts cannot also race on zlib.
+    exec {dependency_lock}>"$cache/.bootstrap.lock"
+    flock "$dependency_lock"
+
     archive="$cache/ps5-payload-sdk.zip"
-    temporary="$archive.download"
-    wget -q "$sdk_url" -O "$temporary"
-    printf '%s  %s\n' "$sdk_hash" "$temporary" | sha256sum --check --strict
-    mv "$temporary" "$archive"
-    unzip -q -o "$archive" -d "$cache"
-fi
-if ! $skip_sdk && [[ ! -x "$sdk/bin/prospero-lld" || ! -d "$sdk/target/include" ]]; then
-    echo "the pinned PS5 payload SDK is incomplete" >&2
-    exit 2
+    if [[ ! -f $archive ]] ||
+        ! printf '%s  %s\n' "$sdk_hash" "$archive" | sha256sum --check --strict --status; then
+        (
+            download=$(mktemp "$cache/.sdk-download.XXXXXX")
+            trap 'rm -f -- "$download"' EXIT
+            wget -q "$sdk_url" -O "$download"
+            printf '%s  %s\n' "$sdk_hash" "$download" | sha256sum --check --strict
+            mv -f -- "$download" "$archive"
+        )
+    fi
+
+    if [[ ! -f $sdk/.source-sha256 || $(<"$sdk/.source-sha256") != "$sdk_hash" ]] ||
+        ! sdk_complete "$sdk"; then
+        (
+            stage=$(mktemp -d "$cache/.sdk-stage.XXXXXX")
+            trap 'rm -rf -- "$stage"' EXIT
+            unzip -q "$archive" -d "$stage"
+            if ! sdk_complete "$stage/ps5-payload-sdk"; then
+                echo "the pinned PS5 payload SDK is incomplete" >&2
+                exit 2
+            fi
+            printf '%s\n' "$sdk_hash" > "$stage/ps5-payload-sdk/.source-sha256"
+            # Readers using this bootstrap see a complete directory after the rename.
+            if [[ -e $sdk || -L $sdk ]]; then
+                mv -T -- "$sdk" "$stage/previous"
+            fi
+            mv -T -- "$stage/ps5-payload-sdk" "$sdk"
+        )
+    fi
 fi
 
 zlib_library=$(find "$zlib_root" -type f -name libz.a -print -quit 2>/dev/null || true)

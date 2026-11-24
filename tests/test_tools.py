@@ -6,6 +6,7 @@
 # Exercises identity initialization and deployment resolution without a console.
 
 from ftplib import error_perm
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import zipfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -296,6 +298,81 @@ class ToolTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("/data/homebrew/PPSA54321/", result.stdout)
             self.assertNotIn("/data/homebrew/PPSA12345/", result.stdout)
+
+    @unittest.skipUnless(shutil.which("flock") and shutil.which("unzip"), "Linux SDK tools required")
+    def test_sdk_recovery_and_concurrent_setup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tools = root / "tools"
+            tools.mkdir()
+            script = tools / "setup-native-dependencies.sh"
+            cache = root / ".deps/native"
+            zlib = cache / "zlib/root"
+            (zlib / "usr/include").mkdir(parents=True)
+            (zlib / "usr/include/zlib.h").touch()
+            (zlib / "libz.a").touch()
+            script_text = (ROOT / "tools/setup-native-dependencies.sh").read_text()
+            version = script_text.split('zlib_version="', 1)[1].split('"', 1)[0]
+            (zlib / ".source-version").write_text(version + "\n")
+            archive = cache / "ps5-payload-sdk.zip"
+            with zipfile.ZipFile(archive, "w") as package:
+                linker = zipfile.ZipInfo("ps5-payload-sdk/bin/prospero-lld")
+                linker.create_system = 3
+                linker.external_attr = 0o100755 << 16
+                package.writestr(linker, "#!/bin/sh\n")
+                package.writestr("ps5-payload-sdk/target/include/sample.h", "/* header */")
+            digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+            pinned = script_text.split('sdk_hash="', 1)[1].split('"', 1)[0]
+            script.write_text(script_text.replace(pinned, digest))
+            mock_bin = root / "bin"
+            mock_bin.mkdir()
+
+            def mock(name, body):
+                path = mock_bin / name
+                path.write_text("#!/usr/bin/env bash\n" + body)
+                path.chmod(0o755)
+
+            mock("wget", "exit 99\n")
+            mock("unzip", """
+printf 'extract\\n' >> "$SDK_EXTRACT_LOG"
+"$REAL_UNZIP" "$@" || exit
+if [[ -f $SDK_FAIL_ONCE ]]; then
+    rm -- "$SDK_FAIL_ONCE"
+    exit 42
+fi
+""")
+            trace = root / "extract.log"
+            fail_once = root / "fail-once"
+            fail_once.touch()
+            env = dict(
+                os.environ,
+                PATH=f"{mock_bin}{os.pathsep}{os.environ['PATH']}",
+                REAL_UNZIP=shutil.which("unzip"),
+                SDK_EXTRACT_LOG=str(trace),
+                SDK_FAIL_ONCE=str(fail_once),
+            )
+            command = ["bash", str(script)]
+            first = subprocess.run(command, env=env, capture_output=True, text=True)
+            self.assertEqual(first.returncode, 42, first.stderr)
+            sdk = cache / "ps5-payload-sdk"
+            self.assertFalse(sdk.exists())
+            self.assertEqual(list(cache.glob(".sdk-stage.*")), [])
+
+            with subprocess.Popen(command, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as one:
+                with subprocess.Popen(command, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as two:
+                    for process in (one, two):
+                        _, error = process.communicate(timeout=20)
+                        self.assertEqual(process.returncode, 0, error)
+            self.assertEqual(trace.read_text().splitlines(), ["extract"] * 2)
+
+            header = sdk / "target/include/sample.h"
+            header.unlink()
+            incomplete = subprocess.run(command, env=env, capture_output=True, text=True)
+            self.assertEqual(incomplete.returncode, 0, incomplete.stderr)
+            self.assertEqual(header.read_text(), "/* header */")
+            warm = subprocess.run(command, env=env, capture_output=True, text=True)
+            self.assertEqual(warm.returncode, 0, warm.stderr)
+            self.assertEqual(trace.read_text().splitlines(), ["extract"] * 3)
 
     def test_pull_request_builds_are_named_and_labelled(self):
         workflow = (ROOT / ".github/workflows/tooling.yml").read_text(encoding="utf-8")
