@@ -5,9 +5,11 @@
 #
 # Exercises identity initialization and deployment resolution without a console.
 
+from ftplib import error_perm
 import json
 import os
 from pathlib import Path
+from posixpath import dirname
 import runpy
 import shutil
 import subprocess
@@ -180,6 +182,87 @@ class ToolTests(unittest.TestCase):
             self.assertEqual(refused.returncode, 2, refused.stdout)
             self.assertIn("DEPLOY_FORMAT is no longer used", refused.stderr)
             self.assertFalse(arguments.exists())
+
+    def test_ftp_replacement_survives_disconnect(self):
+        publish = runpy.run_path(str(ROOT / "tools/deploy-folder.py"))["publish"]
+
+        class MockFtp:
+            def __init__(self):
+                self.directories = {"/"}
+                self.files = {}
+                self.promoted = []
+                self.current = "/"
+                self.disconnect = None
+
+            def pwd(self):
+                return self.current
+
+            def cwd(self, path):
+                self.current = path
+
+            def mlsd(self):
+                return [
+                    (path.rsplit("/", 1)[-1], {})
+                    for path in self.files
+                    if dirname(path) == self.current
+                ]
+
+            def mkd(self, path):
+                if path in self.directories:
+                    raise error_perm("550 Already exists")
+                self.directories.add(path)
+
+            def sendcmd(self, command):
+                path = command.removeprefix("DELE ")
+                if path not in self.files:
+                    raise error_perm("550 No such file")
+                if not path.endswith(".upload"):
+                    raise AssertionError("deployment deleted a live file")
+                del self.files[path]
+
+            def storbinary(self, command, source, blocksize):
+                self.files[command.removeprefix("STOR ")] = source.read()
+
+            def rename(self, source, target):
+                disconnect = self.disconnect if target.endswith("/eboot.bin") else None
+                if disconnect == "before":
+                    raise EOFError("connection dropped before rename")
+                self.files[target] = self.files.pop(source)
+                self.promoted.append(target)
+                if disconnect == "after":
+                    raise EOFError("rename reply was lost")
+
+        with tempfile.TemporaryDirectory() as directory:
+            artifact = Path(directory)
+            (artifact / "sce_sys").mkdir()
+            (artifact / "banner.txt").write_bytes(b"asset")
+            executable = artifact / "eboot.bin"
+            metadata = artifact / "sce_sys/param.json"
+            executable.write_bytes(b"initial binary")
+            metadata.write_bytes(b"initial JSON")
+            ftp = MockFtp()
+            title = "PPSA12345"
+            root = publish(ftp, title, artifact)
+            live = root + "/eboot.bin"
+            param = root + "/sce_sys/param.json"
+            self.assertEqual(ftp.promoted, [root + "/banner.txt", live, param])
+            self.assertEqual((ftp.files[live], ftp.files[param]), (b"initial binary", b"initial JSON"))
+
+            for fault, expected in [("before", b"initial binary"), ("after", b"after")]:
+                with self.subTest(fault=fault):
+                    executable.write_bytes(fault.encode())
+                    metadata.write_bytes(fault.encode() + b" JSON")
+                    ftp.disconnect = fault
+                    with self.assertRaises(EOFError):
+                        publish(ftp, title, artifact)
+                    self.assertEqual(ftp.files[live], expected)
+                    previous = b"initial JSON" if fault == "before" else b"before JSON"
+                    self.assertEqual(ftp.files[param], previous)
+                    ftp.disconnect = None
+                    publish(ftp, title, artifact)
+                    self.assertEqual(ftp.files[live], executable.read_bytes())
+                    self.assertEqual(ftp.files[param], metadata.read_bytes())
+                    self.assertFalse(any(path.endswith(".upload") for path in ftp.files))
 
     def test_deploy_uses_selected_app_param_title(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -28,14 +28,17 @@ The default folder deployment:
 
 1. builds `dist/<TITLE_ID>/` from the current source;
 2. uploads each file beside its destination under a hidden `.upload` name;
-3. replaces that file only after its transfer completes;
+3. renames the completed upload over its destination in one operation;
 4. publishes `eboot.bin` and then `sce_sys/param.json` last; and
 5. verifies that both required files appear in the remote directory.
 
 The FTP client uses current-directory `MLSD` checks and accepts any successful
 2xx completion for file deletion. This accommodates the homebrew `ftpsrv`
 behavior used by the validated 6.02 and 12.70 environments while preserving
-the temporary-upload and required-file gates.
+the temporary-upload and required-file gates. The [ftpsrv v0.22 RNTO handler](https://github.com/ps5-payload-dev/ftpsrv/blob/v0.22/cmd.c#L743-L760)
+uses a same-directory filesystem rename. If a connection drops, rerun the
+deployment. Each destination keeps either its previous file or the complete
+replacement. A retry discards any leftover temporary upload and sends it again.
 
 Keeping `/data/homebrew/<TITLE_ID>/` itself in place preserves ShadowMountPlus's
 existing nullfs source while updating what the next launch reads. Fully close
