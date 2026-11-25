@@ -13,6 +13,8 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <fcntl.h>
 #include <memory>
 #include <new>
 #include <span>
@@ -29,6 +31,9 @@ extern "C"
     int sceKernelSendNotificationRequest(std::uint32_t device, void *request, std::size_t size,
                                          int blocking);
     int sceKernelUsleep(std::uint32_t microseconds);
+    int sceKernelOpen(const char *path, int flags, int mode);
+    std::int64_t sceKernelWrite(int descriptor, const void *buffer, std::size_t length);
+    int sceKernelClose(int descriptor);
     int sceSystemServiceHideSplashScreen();
     int sceVideoOutOpen(std::int32_t user_id, std::int32_t bus_type, std::int32_t index,
                         const void *param);
@@ -310,6 +315,44 @@ void Canvas::text(unsigned x, unsigned y, std::string_view value, unsigned scale
     draw_text(pixels_, x, y, value, scale, color);
 }
 
+bool Canvas::save_ppm(const char *path) const noexcept
+{
+    if (path == nullptr)
+        return false;
+    const int file = sceKernelOpen(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (file < 0)
+        return false;
+    const auto write_all = [&](const void *data, std::size_t length)
+    {
+        auto *bytes = static_cast<const std::uint8_t *>(data);
+        while (length != 0)
+        {
+            const std::int64_t written = sceKernelWrite(file, bytes, length);
+            if (written <= 0)
+                return false;
+            bytes += written;
+            length -= static_cast<std::size_t>(written);
+        }
+        return true;
+    };
+    constexpr char header[] = "P6\n1920 1080\n255\n";
+    bool ok = write_all(header, sizeof(header) - 1);
+    std::array<std::uint8_t, frame_width * 3> row{};
+    const auto *pixels = reinterpret_cast<const std::uint8_t *>(pixels_);
+    for (unsigned y = 0; ok && y < frame_height; ++y)
+    {
+        for (unsigned x = 0; x < frame_width; ++x)
+        {
+            const std::size_t offset = tiled_byte_offset(x, y);
+            row[x * 3] = pixels[offset];
+            row[x * 3 + 1] = pixels[offset + 1];
+            row[x * 3 + 2] = pixels[offset + 2];
+        }
+        ok = write_all(row.data(), row.size());
+    }
+    return sceKernelClose(file) == 0 && ok;
+}
+
 [[noreturn]] void run(DrawScene draw, std::string_view ready_message) noexcept
 {
     detail::present(draw, ready_message, false);
@@ -391,7 +434,8 @@ void Canvas::text(unsigned x, unsigned y, std::string_view value, unsigned scale
                     draw(canvas);
                     flush_range(back.data, frame_bytes);
                 },
-                [&](int buffer, std::uint64_t frame) {
+                [&](int buffer, std::uint64_t frame)
+                {
                     return sceVideoOutSubmitFlip(video, buffer, 1,
                                                  static_cast<std::int64_t>(frame)) >= 0;
                 },

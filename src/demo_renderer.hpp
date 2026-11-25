@@ -47,6 +47,8 @@ class Canvas final
     void triangle(unsigned center_x, unsigned top, unsigned half_width, unsigned height,
                   Color color) noexcept;
     void text(unsigned x, unsigned y, std::string_view value, unsigned scale, Color color) noexcept;
+    // Save the current tiled frame as a portable RGB image for console diagnostics.
+    bool save_ppm(const char *path) const noexcept;
 
   private:
     explicit Canvas(std::uint32_t *pixels) noexcept : pixels_{pixels}

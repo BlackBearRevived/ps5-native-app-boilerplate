@@ -323,6 +323,10 @@ void log_progress(const self_update_status &status) noexcept
 
 void draw_frame(Canvas &canvas) noexcept
 {
+#ifdef SELF_UPDATE_CAPTURE_FRAMES
+    static unsigned frame_count = 0;
+    ++frame_count;
+#endif
     const std::uint32_t down = pressed();
     const std::uint64_t shown_ms = now_ms() - screen_since;
     std::array<char, 96> line{};
@@ -436,6 +440,18 @@ void draw_frame(Canvas &canvas) noexcept
 #endif
         break;
     }
+#ifdef SELF_UPDATE_CAPTURE_FRAMES
+    (void)std::snprintf(line.data(), line.size(), "Frame %u", frame_count);
+    draw_text(canvas, 160, 1010, line.data(), 4, Color::cyan);
+    if (frame_count == 30 || frame_count == 120)
+    {
+        const char *path =
+            frame_count == 30 ? "/download0/frame-030.ppm" : "/download0/frame-120.ppm";
+        (void)std::snprintf(line.data(), line.size(), "frame %u capture %s", frame_count,
+                            canvas.save_ppm(path) ? "saved" : "failed");
+        emit(line.data());
+    }
+#endif
     (void)shown_ms;
 }
 
