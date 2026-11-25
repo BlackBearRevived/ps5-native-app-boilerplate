@@ -434,8 +434,7 @@ bool Canvas::save_ppm(const char *path) const noexcept
                     draw(canvas);
                     flush_range(back.data, frame_bytes);
                 },
-                [&](int buffer, std::uint64_t frame)
-                {
+                [&](int buffer, std::uint64_t frame) {
                     return sceVideoOutSubmitFlip(video, buffer, 1,
                                                  static_cast<std::int64_t>(frame)) >= 0;
                 },
