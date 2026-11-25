@@ -8,6 +8,7 @@ on:
   push:
     branches: [main]
     tags:
+      - "[0-9].[0-9][0-9][0-9].[0-9][0-9][0-9]"
       - "[0-9][0-9].[0-9][0-9][0-9].[0-9][0-9][0-9]"
   pull_request:
   schedule:
@@ -18,20 +19,19 @@ permissions:
   contents: read
 
 concurrency:
-  group: build-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name != 'schedule' }}
+  group: build-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
     name: Lint, build, and package
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    # The two write entries are for the attestation step only: a signing identity for this run,
-    # and storing the attestation. A pull request from a fork gets neither, whatever is asked.
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
+    outputs:
+      artifact: ${{ steps.label.outputs.artifact }}
+      title-id: ${{ steps.identity.outputs.title-id }}
+      release-tag: ${{ steps.identity.outputs.release-tag }}
+      source-sha: ${{ steps.identity.outputs.source-sha }}
     env:
       CCACHE_DIR: ${{ github.workspace }}/.deps/ccache
       CCACHE_MAXSIZE: 500M
@@ -79,18 +79,26 @@ jobs:
           ccache --zero-stats
 
       - name: Read app identity and version
+        id: identity
         shell: bash
         run: |
           metadata=$(python3 -c 'import json; p=json.load(open("sce_sys/param.json")); print(p["titleId"], p["contentVersion"])')
           read -r title_id content_version <<< "$metadata"
           [[ $title_id =~ ^PPSA[0-9]{5}$ ]] || exit 2
           [[ $content_version =~ ^[0-9]{2}\.[0-9]{3}\.[0-9]{3}$ ]] || exit 2
-          if [[ $GITHUB_REF_TYPE == tag && $GITHUB_REF_NAME != "$content_version" ]]; then
-            echo "Release tag must exactly match param.json contentVersion: $content_version" >&2
-            exit 2
+          release_tag=${content_version#0}
+          if [[ $GITHUB_REF_TYPE == tag ]]; then
+            if [[ $GITHUB_REF_NAME != "$release_tag" && $GITHUB_REF_NAME != "$content_version" ]]; then
+              echo "Release tag must agree with param.json contentVersion: $content_version" >&2
+              exit 2
+            fi
+            release_tag=$GITHUB_REF_NAME
           fi
           echo "TITLE_ID=$title_id" >> "$GITHUB_ENV"
-          echo "CONTENT_VERSION=$content_version" >> "$GITHUB_ENV"
+          echo "title-id=$title_id" >> "$GITHUB_OUTPUT"
+          echo "release-tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "source-sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
 
       # A pull request's build is named by its number and its own commit, on the
       # artifact and inside the app (docs/PULL_REQUEST_BUILDS.md); the version in
@@ -159,15 +167,6 @@ jobs:
       - name: Write release checksums
         run: cd dist && sha256sum "$TITLE_ID.zip" > SHA256SUMS
 
-      # Signed provenance: this ZIP was built by this workflow from this commit. Anyone can check a
-      # downloaded copy with `gh attestation verify <file> -R <owner>/<repo>`. Not for pull requests
-      # (a fork's run cannot sign), and not in a private repository (the plan does not include it).
-      - name: Attest the release ZIP
-        if: github.event_name != 'pull_request' && !github.event.repository.private
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
-        with:
-          subject-path: dist/${{ env.TITLE_ID }}.zip
-
       - name: Upload build
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -198,73 +197,110 @@ jobs:
           path: .deps/ccache
           key: ${{ steps.compiler.outputs.cache-primary-key }}
 
-  release:
-    name: GitHub release
-    if: github.ref_type == 'tag'
+  attest:
+    name: Attest folder ZIP
     needs: build
+    if: github.event_name != 'pull_request' && !github.event.repository.private
     runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Download and check this run's ZIP
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT: ${{ needs.build.outputs.artifact }}
+        run: |
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$ARTIFACT" --dir package
+          (cd package && sha256sum -c --strict SHA256SUMS)
+
+      - name: Sign GitHub Actions build provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: package/${{ needs.build.outputs.title-id }}.zip
+
+  release:
+    name: Publish folder-format release
+    needs: [build, attest]
+    if: >-
+      !cancelled() && needs.build.result == 'success' &&
+      (needs.attest.result == 'success' || (github.event.repository.private && needs.attest.result == 'skipped')) &&
+      (github.ref_type == 'tag' ||
+        (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch))
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: release-${{ needs.build.outputs.release-tag }}
+      cancel-in-progress: false
     permissions:
       actions: read
       contents: write
 
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.build.outputs.release-tag }}
+      SOURCE_SHA: ${{ needs.build.outputs.source-sha }}
+      ARTIFACT: ${{ needs.build.outputs.artifact }}
+      TITLE_ID: ${{ needs.build.outputs.title-id }}
+
     steps:
-      - name: Download verified build
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: >-
-          gh run download "$GITHUB_RUN_ID"
-          --repo "$GITHUB_REPOSITORY"
-          --name "ps5-native-app-boilerplate-$GITHUB_SHA"
-          --dir release
-
-      - name: Prepare release assets
-        id: package
-        shell: bash
+      - name: Check whether this version needs publishing
+        id: plan
         run: |
           set -euo pipefail
-          cd release
-          mapfile -d '' files < <(find . -type f -print0)
-          if (( ${#files[@]} != 2 )); then
-            echo "Expected exactly one app-folder ZIP and SHA256SUMS." >&2
-            exit 1
-          fi
-          shopt -s nullglob
-          folder_zips=(PPSA*.zip dist/PPSA*.zip)
-          checksums=(SHA256SUMS dist/SHA256SUMS)
-          if (( ${#folder_zips[@]} != 1 || ${#checksums[@]} != 1 )); then
-            echo "Release files must be one app-folder ZIP and SHA256SUMS." >&2
-            exit 1
-          fi
-          (cd "$(dirname "${checksums[0]}")" && sha256sum -c SHA256SUMS)
-          echo "folder_zip=${folder_zips[0]}" >> "$GITHUB_OUTPUT"
-          echo "checksum=${checksums[0]}" >> "$GITHUB_OUTPUT"
-
-      - name: Publish GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          FOLDER_ZIP: ${{ steps.package.outputs.folder_zip }}
-          CHECKSUM: ${{ steps.package.outputs.checksum }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          assets=("release/$FOLDER_ZIP" "release/$CHECKSUM")
-          TAG=$GITHUB_REF_NAME
-          # CI is the source of truth for release files: create the release, or fill one that
-          # has no ZIP yet, and never replace a ZIP that is already published.
-          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "$TAG" "${assets[@]}" \
-              --repo "$GITHUB_REPOSITORY" \
-              --verify-tag \
-              --generate-notes \
-              --title "PS5 Native App Boilerplate $TAG"
+          # Include a prepared draft if present. A lookup failure stops publication.
+          release=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq ".[] | select(.tag_name == \"$TAG\")")
+          if [[ -n $release ]] && jq -e 'any(.assets[]; .name | endswith(".zip"))' <<< "$release" >/dev/null; then
+            echo "$TAG already has a release ZIP."
             exit 0
           fi
-          existing=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
-          while IFS= read -r name; do
-            if [[ $name == *.zip ]]; then
-              echo "::warning title=Release files not from this run::A release for $TAG already has a ZIP; it was not replaced. Its files were not published by this run and may have no attestation."
+
+          if tag=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" 2>&1); then
+            target=$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha)
+            if [[ $target != "$SOURCE_SHA" ]]; then
+              echo "::notice::Tag $TAG already points to $target. Version unchanged."
               exit 0
             fi
-          done <<< "$existing"
-          # Notes written in advance, or a draft: add the two files, leave title and notes alone.
-          gh release upload "$TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY"
+          elif [[ $tag == *"HTTP 404"* && $GITHUB_REF_TYPE == branch ]]; then
+            echo "create_tag=true" >> "$GITHUB_OUTPUT"
+          else
+            printf '%s\n' "$tag" >&2
+            exit 1
+          fi
+
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+          if [[ -n $release ]]; then
+            echo "existing=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download and check the folder ZIP
+        if: steps.plan.outputs.publish == 'true'
+        run: |
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$ARTIFACT" --dir package
+          cd package
+          test -s "$TITLE_ID.zip"
+          sha256sum -c --strict SHA256SUMS
+
+      - name: Create the version tag
+        if: steps.plan.outputs.create_tag == 'true'
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f ref="refs/tags/$TAG" -f sha="$SOURCE_SHA" --jq .ref
+
+      - name: Publish the ZIP and checksum
+        if: steps.plan.outputs.publish == 'true'
+        env:
+          EXISTING: ${{ steps.plan.outputs.existing }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha)" = "$SOURCE_SHA"
+          assets=("package/$TITLE_ID.zip" package/SHA256SUMS)
+          if [[ $EXISTING == true ]]; then
+            gh release upload "$TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" \
+              --verify-tag --generate-notes --title "PS5 Native App Boilerplate $TAG"
+          fi

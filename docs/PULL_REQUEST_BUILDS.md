@@ -66,9 +66,8 @@ BUILD_LABEL="pacing test 2" make
 ## Using this in your project
 
 `tools/init-project.sh` leaves the workflow as it is. The pull-request name follows the
-repository's name by itself. The name used for tags and runs started by hand,
-`ps5-native-app-boilerplate-<commit>`, appears twice in the workflow (the upload, and the
-release job's download); rename both together if you want your project's name there.
+repository's name by itself. The build workflow passes the artifact name to the
+jobs that sign provenance and publish the release ZIP.
 
 Pull-request runs have a read-only token and no secrets, including for forks. Do not move
 this build to `pull_request_target` to post links or comments: that event runs with write

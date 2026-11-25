@@ -19,32 +19,34 @@ every entry to `0777` as it writes. The console requires accessible files and so
 extractors preserve the archived mode. The tool checks permissions and CRCs before
 replacing the previous ZIP.
 
-Once the ZIP is final, the workflow signs a build-provenance attestation for it (the
-`Attest the release ZIP` step, `actions/attest`): a record, kept by GitHub, that this exact
-file was built by this workflow from this commit. The step runs under two conditions: the run
-is not a pull request (a fork's run cannot sign), and the repository is public (attestations
-in a private repository need a plan that includes them). The build job holds `id-token: write`
-and `attestations: write` for this step alone. The release publishes the same file, so nothing
-is attached to it: the attestation is found by the file's hash. Anyone can check a downloaded
-ZIP with the GitHub CLI:
-
-```bash
-gh attestation verify <TITLE_ID>.zip -R <owner>/<repository>
-```
-
-Only builds made by the workflow since this step was added are covered; an older release, or
-a ZIP built on a PC, has no attestation and the command says so.
-
 ## Publishing a release
 
-A release is made by pushing the version tag: the workflow builds, attests and publishes the
-ZIP and `SHA256SUMS`. Release files are not attached by hand, so that every published file
-comes from a run and has an attestation. The publish step handles three cases:
+Update `contentVersion` in `sce_sys/param.json` and push or merge the release
+commit to `main`. For metadata version `01.000.000`, the workflow creates tag
+`1.000.000` at the commit it built. It uploads the folder-format ZIP and its
+`SHA256SUMS` as the release assets. A later push with the same version retains
+the published ZIP and tag. Bump `contentVersion` for a new release.
 
-- **No release for the tag:** it creates one with the two files.
-- **A release without a ZIP** (notes written in advance, or a draft): it adds the two files
-  and leaves the title and notes alone.
-- **A release that already has a ZIP:** nothing is replaced or deleted, because the catalog
-  at homebrew.page records each release ZIP's checksum and the store refuses a file that
-  differs. The run ends green with a warning that those files were not published by it and
-  may have no attestation.
+For public builds outside pull requests, a dedicated job checks the downloaded
+ZIP and signs GitHub Actions build provenance for it. A public release waits
+for that job to succeed. The publish job checks the same build's ZIP again
+and confirms that the tag points to the built commit. GitHub indexes the
+attestation by the ZIP's hash.
+
+## Verify a downloaded release
+
+Use a recent GitHub CLI. From the directory with the ZIP and checksum file:
+
+```bash
+sha256sum -c SHA256SUMS
+repo=BlackBearRedux/ps5-native-app-boilerplate
+tag=1.000.000
+source_sha=$(gh api "repos/$repo/commits/$tag" --jq .sha)
+gh attestation verify PPSA99999.zip --repo "$repo" \
+  --signer-workflow "$repo/.github/workflows/tooling.yml" \
+  --source-digest "$source_sha" --deny-self-hosted-runners
+```
+
+Use the desired release tag and the actual ZIP filename. This verifies the
+ZIP's bytes, the GitHub-hosted signing workflow, and the source commit for the
+tag. See [GitHub artifact attestations](https://docs.github.com/en/actions/concepts/security/artifact-attestations).

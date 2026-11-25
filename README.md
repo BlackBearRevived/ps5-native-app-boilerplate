@@ -247,10 +247,10 @@ is:
 }
 ```
 
-- `contentVersion` is the application version, Git tag, and GitHub Release name.
-  It must use `NN.NNN.NNN` exactly, without a `v` prefix. Increment it for each
-  release; this project does not assign Semantic Versioning meaning to its
-  fields.
+- `contentVersion` is the application version and source for the release tag.
+  Keep the PS5 metadata in `NN.NNN.NNN` format. The workflow drops the major
+  component's leading zero, so `01.000.000` becomes Git tag `1.000.000`.
+  Increment it for each release.
 - `masterVersion` is the compatible release baseline. Keep `01.00` unless a
   release intentionally changes that compatibility baseline.
 - `titleId`, `conceptId`, and `contentId` identify the application rather than
@@ -259,23 +259,15 @@ is:
 - `sdkVersion` and `requiredSystemSoftwareVersion` are loader/platform metadata,
   not project release numbers.
 
-For a release, update `contentVersion`, commit the exact source, run the local
-gates, then tag and push that same commit:
+To publish a release, update `contentVersion` and merge or push to `main`.
+Once CI passes, the workflow creates the version tag at the built commit and
+publishes the folder-format ZIP with `SHA256SUMS`. Later pushes with the same
+version preserve the existing release.
 
-```bash
-git tag 01.002.003
-git push origin 01.002.003
-```
+Check a downloaded ZIP with `sha256sum -c SHA256SUMS`. For public releases,
+verify the signed GitHub Actions provenance using a recent GitHub CLI.
+See [Release ZIP verification](docs/RELEASE_ZIP.md#verify-a-downloaded-release).
 
-Pushing the tag starts the release workflow. It checks that the tag matches
-`contentVersion`, builds the app folder ZIP, and publishes it with its `SHA256SUMS`.
-The workflow creates a missing release or adds assets to a release that has no ZIP.
-An existing release ZIP is kept. The ZIP contains the application and generated
-`libc.prx`.
-
-Check a downloaded ZIP with `sha256sum -c SHA256SUMS` from the folder containing both
-files. The workflow also attests eligible public builds. For those builds, use
-`gh attestation verify <ZIP> -R BlackBearRedux/ps5-native-app-boilerplate`.
 See [Application configuration](docs/CONFIGURATION.md) for metadata fields.
 
 The target uses C++20 with exceptions and RTTI disabled. Allocation-free

@@ -15,7 +15,7 @@ Change these fields together when creating a new application:
 | `titleId` | Unique `PPSA` plus five-digit application identifier. |
 | `conceptId` | Five numeric characters; normally the numeric title-ID portion. |
 | `contentId` | Package identity containing the title ID and a 16-character suffix. |
-| `contentVersion` | Application and repository release version in `NN.NNN.NNN` form. |
+| `contentVersion` | Application version and source for the release tag, in `NN.NNN.NNN` form. |
 | `masterVersion` | Compatible release baseline in `NN.NN` form. |
 | `downloadDataSize` | Reservation that makes `/download0` available. |
 
@@ -35,22 +35,17 @@ It derives the 16-character content suffix from the app name unless
 
 ## One version everywhere
 
-This project does not use Semantic Versioning. `contentVersion` is the only
-release number and must use the PS5 `NN.NNN.NNN` format, for example
-`01.002.003`. Use that exact value for the Git tag and GitHub Release name—do
-not add a `v` prefix:
+Keep `contentVersion` in the PS5 `NN.NNN.NNN` format, such as
+`01.002.003`. A successful push to `main` creates Git tag `1.002.003` and
+publishes a release if that version has no tag or release yet. The workflow
+drops one leading zero from the major component and keeps the remaining
+components as written. The build also accepts explicitly pushed legacy tags
+that exactly match the PS5 metadata format.
 
-```bash
-git tag 01.002.003
-git push origin 01.002.003
-```
-
-The release workflow rejects a tag that differs from
-`sce_sys/param.json`'s `contentVersion`. For ordinary development, keep
-`masterVersion` at `01.00` and increment `contentVersion` for each release.
-Change `masterVersion` only when intentionally changing the compatible release
-baseline. Each tagged GitHub Release contains a ZIP of the directory-style
-application and its `SHA256SUMS`.
+For ordinary development, keep `masterVersion` at `01.00` and increment
+`contentVersion` when you intend to release. Change `masterVersion` only when
+intentionally changing the compatible release baseline. See
+[release packaging and verification](RELEASE_ZIP.md).
 
 The loader-visible SDK and FSELF constants are internal build-format values,
 not application versions. They remain fixed to the cross-firmware-validated
