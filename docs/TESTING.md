@@ -72,7 +72,7 @@ For a hardware milestone:
    project workflow requires one.
 
 Follow [Deployment](DEPLOYMENT.md) and the separate
-[PS5 Homebrew Development Protocol](https://github.com/blackbearreloaded/ps5-homebrew-dev-protocol)
+[PS5 Homebrew Development Protocol](https://github.com/BlackBearRedux/ps5-homebrew-dev-protocol)
 for console coordination, evidence collection, and milestone policy.
 
 ## Adding tests

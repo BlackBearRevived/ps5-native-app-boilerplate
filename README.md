@@ -1,6 +1,6 @@
 # PS5 Native App Boilerplate
 
-[![Build](https://github.com/ursonegro/ps5-native-app-boilerplate/actions/workflows/tooling.yml/badge.svg)](https://github.com/ursonegro/ps5-native-app-boilerplate/actions/workflows/tooling.yml)
+[![Build](https://github.com/BlackBearRedux/ps5-native-app-boilerplate/actions/workflows/tooling.yml/badge.svg)](https://github.com/BlackBearRedux/ps5-native-app-boilerplate/actions/workflows/tooling.yml)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
 
 Build modern C++20 homebrew applications for PlayStation 5 from Linux, WSL, or
@@ -80,7 +80,7 @@ clean history. The same workflow is available through the GitHub CLI:
 
 ```bash
 gh repo create my-ps5-app \
-  --template ursonegro/ps5-native-app-boilerplate \
+  --template BlackBearRedux/ps5-native-app-boilerplate \
   --private \
   --clone
 ```
@@ -269,7 +269,7 @@ An existing release ZIP is kept. The ZIP contains the application and generated
 
 Check a downloaded ZIP with `sha256sum -c SHA256SUMS` from the folder containing both
 files. The workflow also attests eligible public builds. For those builds, use
-`gh attestation verify <ZIP> -R ursonegro/ps5-native-app-boilerplate`.
+`gh attestation verify <ZIP> -R BlackBearRedux/ps5-native-app-boilerplate`.
 See [Application configuration](docs/CONFIGURATION.md) for metadata fields.
 
 The target uses C++20 with exceptions and RTTI disabled. Allocation-free
