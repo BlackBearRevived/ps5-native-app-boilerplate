@@ -15,6 +15,7 @@ import runpy
 import shutil
 import subprocess
 import tempfile
+import textwrap
 import unittest
 import zipfile
 
@@ -383,7 +384,7 @@ fi
         self.assertIn('echo "BUILD_LABEL=PR $PR_NUMBER, $short" >> "$GITHUB_ENV"', workflow)
         self.assertIn("name: ${{ steps.label.outputs.artifact }}", workflow)
         # The release job still finds a tag's build under its commit.
-        self.assertIn('--name "ps5-native-app-boilerplate-$GITHUB_SHA"', workflow)
+        self.assertIn("artifact: ${{ steps.label.outputs.artifact }}", workflow)
         self.assertIn(
             'echo "artifact=ps5-native-app-boilerplate-$GITHUB_SHA" >> "$GITHUB_OUTPUT"', workflow
         )
@@ -416,38 +417,26 @@ fi
             self.assertFalse((ROOT / "tools" / name).exists(), name)
         self.assertIn("run: make app", workflow)
         self.assertIn('sha256sum "$TITLE_ID.zip" > SHA256SUMS', workflow)
-        self.assertIn('assets=("release/$FOLDER_ZIP" "release/$CHECKSUM")', workflow)
-        # The release job creates a release, or fills one that has no ZIP; it never replaces,
-        # deletes or rewrites anything on a release that exists.
+        self.assertIn('assets=("package/$TITLE_ID.zip" package/SHA256SUMS)', workflow)
         for forbidden in ("--clobber", "delete-asset", "gh release edit"):
             self.assertNotIn(forbidden, workflow)
-        publish = workflow[workflow.index("- name: Publish GitHub release") :]
-        self.assertIn('gh release create "$TAG" ', publish)
-        self.assertIn('gh release upload "$TAG" ', publish)
-        self.assertIn("--json assets --jq '.assets[].name'", publish)
-        self.assertIn("if [[ $name == *.zip ]]; then", publish)
-        self.assertIn("::warning title=Release files not from this run::", publish)
-        self.assertLess(publish.index("gh release create"), publish.index("::warning"))
-        self.assertLess(publish.index("::warning"), publish.index("gh release upload"))
-        # The finished ZIP, and only the ZIP, is attested before it is uploaded: pinned action,
-        # never for a pull request or in a private repository.
-        attest = workflow.index("- name: Attest the release ZIP")
-        upload = workflow.index("- name: Upload build")
-        self.assertLess(workflow.index("- name: Write release checksums"), attest)
-        self.assertLess(attest, upload)
-        step = workflow[attest:upload]
-        self.assertIn(
-            "uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2", step
+        build, attest = workflow.split("\n  attest:\n", 1)
+        attest, release = attest.split("\n  release:\n", 1)
+        self.assertIn("if: github.event_name != 'pull_request' && !github.event.repository.private", attest)
+        self.assertIn("sha256sum -c --strict SHA256SUMS", attest)
+        self.assertIn("uses: actions/attest@", attest)
+        self.assertIn("subject-path: package/${{ needs.build.outputs.title-id }}.zip", attest)
+        for permission in ("id-token: write", "attestations: write"):
+            self.assertIn(permission, attest)
+            self.assertNotIn(permission, build + release)
+        self.assertIn("needs: [build, attest]", release)
+        self.assertIn("needs.attest.result == 'success'", release)
+        self.assertIn("gh release create", release)
+        self.assertIn("gh release upload", release)
+        self.assertIn("--verify-tag", release)
+        self.assertLess(
+            release.index('endswith(".zip")'), release.index('gh release upload')
         )
-        self.assertIn(
-            "if: github.event_name != 'pull_request' && !github.event.repository.private", step
-        )
-        self.assertIn("subject-path: dist/${{ env.TITLE_ID }}.zip\n", step)
-        self.assertNotIn("SHA256SUMS", step)
-        build_job = workflow[workflow.index("\n  build:") : workflow.index("\n  release:")]
-        for permission in ("contents: read", "id-token: write", "attestations: write"):
-            self.assertIn(f"      {permission}\n", build_job)
-        self.assertNotIn("id-token", workflow.replace(build_job, ""))
         # Asked for by name, the removed formats are refused before anything is built.
         for removed in ("Ffpkg", "Ffpfsc", "All"):
             result = subprocess.run(
@@ -458,6 +447,35 @@ fi
             )
             self.assertEqual(result.returncode, 2, removed)
             self.assertIn("usage: tools/build.sh [Folder]", result.stderr)
+
+    def test_release_tag_is_derived_from_ps5_metadata(self):
+        workflow = (ROOT / ".github/workflows/tooling.yml").read_text(encoding="utf-8")
+        identity = workflow.split("      - name: Read app identity and version", 1)[1]
+        script = identity.split("        run: |\n", 1)[1].split("\n      #", 1)[0]
+        script = textwrap.dedent(script)
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "output"
+            environment = dict(os.environ, GITHUB_OUTPUT=str(output), GITHUB_ENV=output.as_posix() + ".env")
+            version = json.loads((ROOT / "sce_sys/param.json").read_text())["contentVersion"]
+            major, suffix = version.split(".", 1)
+            canonical = f"{int(major)}.{suffix}"
+            mismatch = f"{int(major) + 1}.{suffix}"
+            for ref_type, ref, status, expected_tag in (
+                ("branch", "main", 0, canonical),
+                ("tag", canonical, 0, canonical),
+                ("tag", version, 0, version),
+                ("tag", mismatch, 2, None),
+            ):
+                with self.subTest(ref=ref):
+                    output.write_text("", encoding="utf-8")
+                    result = subprocess.run(
+                        ["bash", "-eo", "pipefail", "-c", script], cwd=ROOT,
+                        env=dict(environment, GITHUB_REF_TYPE=ref_type, GITHUB_REF_NAME=ref),
+                        capture_output=True, text=True, check=False,
+                    )
+                    self.assertEqual(result.returncode, status, result.stderr)
+                    if expected_tag:
+                        self.assertIn(f"release-tag={expected_tag}\n", output.read_text())
 
     def test_package_preserves_entry_contents_and_previous_archive_on_failure(self):
         package_app = runpy.run_path(str(ROOT / "tools/package-app.py"))["package_app"]
