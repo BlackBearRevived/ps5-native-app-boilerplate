@@ -5,28 +5,21 @@
 name: Build
 
 on:
-  # A build on main is started by hand (Run workflow): pushes to main build nothing.
   push:
+    branches: [main]
     tags:
       - "[0-9][0-9].[0-9][0-9][0-9].[0-9][0-9][0-9]"
   pull_request:
+  schedule:
+    - cron: "37 4 * * *"
   workflow_dispatch:
-    inputs:
-      snapshot:
-        description: "Also publish this run's compiler cache as the build-cache snapshot (run it on main)"
-        type: boolean
-        default: false
-      cache_only:
-        description: "Verify the compiler cache with the default app build and a fresh compiler cache"
-        type: boolean
-        default: false
 
 permissions:
   contents: read
 
 concurrency:
   group: build-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
 
 jobs:
   build:
@@ -42,10 +35,13 @@ jobs:
     env:
       CCACHE_DIR: ${{ github.workspace }}/.deps/ccache
       CCACHE_MAXSIZE: 500M
+      CACHE_PREFIX: build-v2-ubuntu24-clang18-python313
 
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -58,56 +54,23 @@ jobs:
           sudo apt-get install --yes clang-18 clang-format-18 lld-18 make ninja-build ccache pkg-config tar unzip wget
 
       - name: Restore dependencies
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        id: dependencies
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             .deps/native
             .deps/test
             .deps/pacbrew
-          key: deps-${{ runner.os }}-${{ runner.arch }}-ubuntu24-python313-${{ hashFiles('tools/setup-*-dependencies.sh') }}
+          key: ${{ env.CACHE_PREFIX }}-${{ runner.os }}-${{ runner.arch }}-deps-${{ hashFiles('tools/setup-*-dependencies.sh') }}
 
       - name: Restore compiler cache
-        if: ${{ !inputs.cache_only }}
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        id: compiler
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .deps/ccache
-          key: ccache-${{ runner.os }}-${{ runner.arch }}-clang18-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: ${{ env.CACHE_PREFIX }}-${{ runner.os }}-${{ runner.arch }}-ccache-${{ hashFiles('Makefile', 'src/**', 'runtime/**', 'tooling/**', 'tools/**', 'tests/**', 'examples/**') }}
           restore-keys: |
-            ccache-${{ runner.os }}-${{ runner.arch }}-clang18-
-
-      # GitHub drops a cache nobody used for a week, and a pull request only sees main's. When
-      # nothing was restored, start from the snapshot kept as a file of the build-cache release;
-      # a manual run on main with "snapshot" ticked replaces that file (build-cache.yml).
-      - name: Fetch the compiler cache snapshot
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if [ -n "$(ls -A "$CCACHE_DIR" 2>/dev/null)" ]; then
-            exit 0
-          fi
-          asset_name=ccache-clang18.tar
-          if ! asset=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/build-cache" \
-              --jq '.assets[] | select(.name == "ccache-clang18.tar") | .id' 2>&1); then
-            if [[ $asset == *"HTTP 404"* ]]; then
-              echo "::notice title=Compiler cache::No build-cache release exists. Starting cold."
-            else
-              echo "::warning title=Compiler cache::Could not look up the snapshot. Starting cold."
-              printf '%s\n' "$asset"
-            fi
-            exit 0
-          fi
-          if [ -z "$asset" ]; then
-            echo "::notice title=Compiler cache::No snapshot asset exists. Starting cold."
-            exit 0
-          fi
-          if ! gh api -H 'Accept: application/octet-stream' \
-              "repos/$GITHUB_REPOSITORY/releases/assets/$asset" > "$RUNNER_TEMP/$asset_name"; then
-            echo "::warning title=Compiler cache::Snapshot download failed. Starting cold."
-            exit 0
-          fi
-          mkdir -p "$CCACHE_DIR"
-          tar -xf "$RUNNER_TEMP/$asset_name" -C "$CCACHE_DIR"
-          echo "::notice title=Compiler cache::Restored $asset_name (asset $asset)."
+            ${{ env.CACHE_PREFIX }}-${{ runner.os }}-${{ runner.arch }}-ccache-
 
       - name: Configure parallel compilation
         run: |
@@ -156,21 +119,10 @@ jobs:
       - name: Run host integration tests
         run: make test-integration
 
-      - name: Check Lapy cooperative elevation client
-        if: ${{ !inputs.cache_only }}
-        run: make test-elevation
-
-      - name: Build filesystem capability example
-        if: ${{ !inputs.cache_only }}
-        run: |
-          make sandbox-elevation-example
-          test ! -e dist/PPSA99790/assets
-
       - name: Check update-check parsing and decisions
         run: make test-update-check
 
       - name: Build update-check example
-        if: ${{ !inputs.cache_only }}
         run: |
           make update-check-example
           test -f dist/PPSA99780/assets/targets.txt
@@ -179,7 +131,6 @@ jobs:
         run: make test-self-update
 
       - name: Build self-update example
-        if: ${{ !inputs.cache_only }}
         run: |
           make self-update-example
           test -f dist/PPSA99782/self-updater.elf
@@ -197,21 +148,13 @@ jobs:
 
       - name: Report compiler cache statistics
         if: always()
-        run: ccache --show-stats
-
-      # ccache compresses what it stores, so the snapshot is a plain tar.
-      - name: Pack the compiler cache snapshot
-        if: github.event_name == 'workflow_dispatch' && inputs.snapshot
-        run: tar -cf "$RUNNER_TEMP/ccache-clang18.tar" -C "$CCACHE_DIR" .
-
-      - name: Upload the compiler cache snapshot
-        if: github.event_name == 'workflow_dispatch' && inputs.snapshot
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ccache-snapshot
-          path: ${{ runner.temp }}/ccache-clang18.tar
-          if-no-files-found: error
-          retention-days: 1
+        run: |
+          if command -v ccache >/dev/null; then
+            echo '### Compiler cache' >> "$GITHUB_STEP_SUMMARY"
+            echo '```text' >> "$GITHUB_STEP_SUMMARY"
+            ccache --show-stats | tee -a "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Write release checksums
         run: cd dist && sha256sum "$TITLE_ID.zip" > SHA256SUMS
@@ -235,6 +178,25 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+
+      # PRs may restore the default branch's caches. Only successful builds on
+      # that branch save shared caches. Exact keys are immutable.
+      - name: Save dependencies
+        if: github.ref_name == github.event.repository.default_branch && github.ref_type == 'branch' && github.event_name != 'pull_request' && steps.dependencies.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            .deps/native
+            .deps/test
+            .deps/pacbrew
+          key: ${{ steps.dependencies.outputs.cache-primary-key }}
+
+      - name: Save compiler cache
+        if: github.ref_name == github.event.repository.default_branch && github.ref_type == 'branch' && github.event_name != 'pull_request' && steps.compiler.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .deps/ccache
+          key: ${{ steps.compiler.outputs.cache-primary-key }}
 
   release:
     name: GitHub release

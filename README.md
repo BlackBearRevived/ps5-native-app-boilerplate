@@ -85,10 +85,9 @@ gh repo create my-ps5-app \
   --clone
 ```
 
-The template is private. Run the command from a GitHub account with access to
-it. Fork this repository when preparing a contribution back to the boilerplate. A direct clone is
-best reserved for temporary local experiments because it retains the
-boilerplate remote and history.
+The template is public. The command above creates a private project in your
+account. Fork this repository when preparing a contribution back to the
+boilerplate. A direct clone retains the boilerplate remote and history.
 
 The checked-in skeleton deliberately uses the development identity
 `PPSA99999`, with concept code `99999`. Keep it for a single local development
@@ -150,10 +149,17 @@ the compiler cache; both settings can also go in `.env`.
 
 `ccache --show-stats` reports cache usage. `make clean` removes generated
 outputs but preserves ccache's default user cache and downloaded dependencies.
-GitHub Actions uses the same Ninja build, all runner CPUs, and persistent
-dependency and compiler caches. Every pull request gets an installable build named
-by its number and commit: see [Pull-request builds](docs/PULL_REQUEST_BUILDS.md). Packaging and asset copying still run on each
-requested build so presentation assets stay current.
+[GitHub Actions](https://github.com/BlackBearRedux/ps5-native-app-boilerplate/actions/workflows/tooling.yml)
+builds the default example on pull requests, pushes to `main`, release tags,
+and nightly at 04:37 UTC. A successful build uploads the installable ZIP and
+its SHA-256 checksum. Pull request artifacts include the PR number and commit.
+See [Pull-request builds](docs/PULL_REQUEST_BUILDS.md).
+
+The workflow restores downloaded dependencies and ccache separately. Successful
+default-branch builds save both caches for later runs and pull requests. The
+nightly run keeps the current cache in use. After build inputs change, ccache
+can reuse compatible objects from the previous cache. Each run reports compiler
+cache hits and misses in its summary.
 
 To use a library from PacBrew, run `make pacbrew-list`, then build with a
 space-separated module list such as `make PACBREW_PACKAGES="sdl2 openssl"`.
