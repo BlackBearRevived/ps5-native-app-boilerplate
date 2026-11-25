@@ -63,7 +63,7 @@ does the same for values you pass.
 The check is for apps that are **listed in the catalog**. Before your app is
 listed, its title ID isn't known there and every check answers "not listed",
 which is `UPDATE_CHECK_UNKNOWN`. To get listed, see the catalog's
-[submission guide](https://github.com/blackbearreloaded/ps5-homebrew-catalog/blob/main/docs/submitting.md).
+[submission guide](https://github.com/darkxex/ps5-homebrew-catalog/blob/main/docs/submitting.md).
 
 Rules that keep it harmless:
 
@@ -90,9 +90,9 @@ the one in the running app. So:
   your release tag.
 
 The catalog's
-[App versions](https://github.com/blackbearreloaded/ps5-homebrew-catalog/blob/main/docs/versioning.md)
+[App versions](https://github.com/darkxex/ps5-homebrew-catalog/blob/main/docs/versioning.md)
 page has the full rules, and its
-[Store API](https://github.com/blackbearreloaded/ps5-homebrew-catalog/blob/main/docs/api.md)
+[Store API](https://github.com/darkxex/ps5-homebrew-catalog/blob/main/docs/api.md)
 page specifies the file this check reads
 (`https://homebrew.page/api/v1/apps/<TITLEID>.json`).
 
@@ -126,7 +126,7 @@ Some networks block `homebrew.page`. The catalog publishes its API a second
 time, as a mirror, at
 
 ```
-https://blackbearreloaded.github.io/ps5-homebrew-catalog/api/v1/
+https://darkxex.github.io/ps5-homebrew-catalog/api/v1/
 ```
 
 and the kit uses it by itself:

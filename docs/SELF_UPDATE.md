@@ -173,7 +173,7 @@ steps spelled out.
 
 5. Release as the catalog asks: a `.zip` of the app folder attached to a
    GitHub release, and a higher `contentVersion` in `sce_sys/param.json`
-   ([App versions](https://github.com/blackbearreloaded/ps5-homebrew-catalog/blob/main/docs/versioning.md)).
+   ([App versions](https://github.com/darkxex/ps5-homebrew-catalog/blob/main/docs/versioning.md)).
    The helper is part of that ZIP, so each release carries its own.
 
 ## Examples
@@ -307,7 +307,7 @@ phase=ready       done=26536616 total=26536616  left=-
 ### Showing what's new
 
 The catalog publishes what the developer wrote on the release
-([`release_notes`](https://github.com/blackbearreloaded/ps5-homebrew-catalog/blob/main/docs/api.md#release-notes)),
+([`release_notes`](https://github.com/darkxex/ps5-homebrew-catalog/blob/main/docs/api.md#release-notes)),
 and the check copies it into the offer. It is part of the app's catalog file,
 so the same signature covers it. Let the user read it before choosing:
 
@@ -350,9 +350,8 @@ std::vector<NoteLine> note_lines(std::string_view notes)
 ```
 
 Then wrap each line to your text column and draw it in a scrolling area. What
-works well on a TV, from ProsperoEden's dialog
-([`update.cpp`](https://github.com/blackbearreloaded/ProsperoEden/blob/main/headless/prosperoeden/pe/ui/update.cpp),
-which you can read as a complete implementation):
+works well on a TV comes from ProsperoEden's dialog implementation, which you
+can read as a complete example:
 
 - Put a **What's new** button between **Update now** and **Skip** only when
   `offer.notes[0] != '\0'`, and open the notes in a view of their own with
@@ -674,7 +673,7 @@ The host test replaces the network, the Ed25519 check and the payload loader.
 ## When homebrew.page can't be reached
 
 The catalog is also published, signed, at a mirror
-(`https://blackbearreloaded.github.io/ps5-homebrew-catalog/api/v1/`), for
+(`https://darkxex.github.io/ps5-homebrew-catalog/api/v1/`), for
 networks that block its site. `self_update_check` asks the site first and the
 mirror when the site gives no catalog that verifies: it can't be reached, or
 something else answers in its place.

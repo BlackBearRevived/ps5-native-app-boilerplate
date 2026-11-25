@@ -295,7 +295,7 @@ void test_mirror()
     char url[128];
     CHECK(update_check_url_at(url, sizeof(url), "PPSA99039", 1) != 0);
     CHECK(std::string(url) ==
-          "https://blackbearreloaded.github.io/ps5-homebrew-catalog/api/v1/apps/PPSA99039.json");
+          "https://darkxex.github.io/ps5-homebrew-catalog/api/v1/apps/PPSA99039.json");
     CHECK(update_check_url_at(url, sizeof(url), "PPSA99039", 2) == 0);
     CHECK(update_check_api(2) == nullptr && std::string(update_check_api(0)) == UPDATE_CHECK_API);
 

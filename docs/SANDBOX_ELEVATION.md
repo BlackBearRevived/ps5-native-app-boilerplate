@@ -86,8 +86,8 @@ failed `/data` proof never authorizes privileged work.
 `tools/build-lapy-helper.py` pins:
 
 - Lapy commit
-  [`57fcc19b7f57e46c823d6f2a6c6233ebf3288079`](https://github.com/blackbearreloaded/PS5-Lapy-JB-Daemon/commit/57fcc19b7f57e46c823d6f2a6c6233ebf3288079),
-  in BlackBearReloaded's fork, which carries the changes proposed upstream in PRs
+  [`57fcc19b7f57e46c823d6f2a6c6233ebf3288079`](https://github.com/BlackBearRevived/ps5-lapy-bootstrap/commit/57fcc19b7f57e46c823d6f2a6c6233ebf3288079),
+  in BlackBearRevived's fork, which carries the changes proposed upstream in PRs
   [#48](https://github.com/mpereiraesaa/PS5-Lapy-JB-Daemon/pull/48),
   [#49](https://github.com/mpereiraesaa/PS5-Lapy-JB-Daemon/pull/49) and
   [#50](https://github.com/mpereiraesaa/PS5-Lapy-JB-Daemon/pull/50);

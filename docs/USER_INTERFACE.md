@@ -9,7 +9,7 @@ real interface, and the template does not try to become one.
 When your app needs menus, lists, dialogs, settings screens or anything a
 player navigates, use the companion project:
 
-**[ps5-homebrew-ui](https://github.com/blackbearreloaded/ps5-homebrew-ui)**:
+**[ps5-homebrew-ui](https://github.com/BlackBearRevived/ps5-homebrew-ui)**:
 a reference and a reusable kit for console-grade PS5 homebrew interfaces,
 drawn with OpenGL 4.6.
 
@@ -34,7 +34,7 @@ not verified.
 ps5-homebrew-ui is itself built on this boilerplate: the same Make targets,
 the same native converter and FSELF writer, the same runtime shim and the
 same `sce_sys/` layout. What it adds on top is the
-[ps5-opengl](https://github.com/blackbearreloaded/ps5-opengl) SDK (linked
+[ps5-opengl](https://github.com/BlackBearRevived/ps5-opengl) SDK (linked
 through `APP_STATIC_ARCHIVES`, as any other static library here), the kit
 itself and its assets.
 
@@ -44,7 +44,7 @@ So there are two ways to use it:
    interface. You get this template's build and packaging and the kit
    together. Set your identity with `make init`, delete the sample designs you
    do not want, and build your screens. Its
-   [ADOPTING.md](https://github.com/blackbearreloaded/ps5-homebrew-ui/blob/main/docs/ADOPTING.md)
+   [ADOPTING.md](https://github.com/BlackBearRevived/ps5-homebrew-ui/blob/main/docs/ADOPTING.md)
    ("Start from this app") lists the steps.
 2. **Add the kit to an app you already started from this template.** Copy its
    `src/gfx`, `src/ui`, `src/core`, `src/audio` and `src/platform/ps5`
@@ -63,7 +63,7 @@ draw into the same frame.
   `ui::NotificationStack` is the matching interface: a notification with
   "Update now" and "Later" that can stay until the player answers, with
   progress and a history. Its
-  [notifications guide](https://github.com/blackbearreloaded/ps5-homebrew-ui/blob/main/docs/components/notifications.md)
+  [notifications guide](https://github.com/BlackBearRevived/ps5-homebrew-ui/blob/main/docs/components/notifications.md)
   has the recipe.
 - **Storage.** The kit keeps settings under `/download0`, with the same
   write-then-rename discipline as the [storage recipe](RECIPES.md).
@@ -72,7 +72,7 @@ draw into the same frame.
 - **Clean exit.** The kit's app ends through
   `sceSystemServiceLoadExec("exit", NULL)` and offers a self-driving run for
   hardware checks; see its
-  [console validation guide](https://github.com/blackbearreloaded/ps5-homebrew-ui/blob/main/docs/CONSOLE_VALIDATION.md).
+  [console validation guide](https://github.com/BlackBearRevived/ps5-homebrew-ui/blob/main/docs/CONSOLE_VALIDATION.md).
 
 ## What to know before choosing it
 

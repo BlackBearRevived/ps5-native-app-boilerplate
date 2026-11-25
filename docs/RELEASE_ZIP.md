@@ -39,7 +39,7 @@ Use a recent GitHub CLI. From the directory with the ZIP and checksum file:
 
 ```bash
 sha256sum -c SHA256SUMS
-repo=BlackBearRedux/ps5-native-app-boilerplate
+repo=BlackBearRevived/ps5-native-app-boilerplate
 tag=1.000.000
 source_sha=$(gh api "repos/$repo/commits/$tag" --jq .sha)
 gh attestation verify PPSA99999.zip --repo "$repo" \

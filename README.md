@@ -1,6 +1,6 @@
 # PS5 Native App Boilerplate
 
-[![Build](https://github.com/BlackBearRedux/ps5-native-app-boilerplate/actions/workflows/tooling.yml/badge.svg)](https://github.com/BlackBearRedux/ps5-native-app-boilerplate/actions/workflows/tooling.yml)
+[![Build](https://github.com/BlackBearRevived/ps5-native-app-boilerplate/actions/workflows/tooling.yml/badge.svg)](https://github.com/BlackBearRevived/ps5-native-app-boilerplate/actions/workflows/tooling.yml)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
 
 Build modern C++20 homebrew applications for PlayStation 5 from Linux, WSL, or
@@ -48,7 +48,7 @@ exists: two standalone files that ask the catalog over the console's own HTTPS
 and compare content versions. It needs no elevation and installs nothing.
 
 For a real interface (menus, lists, dialogs, settings screens), use the
-companion [ps5-homebrew-ui](https://github.com/blackbearreloaded/ps5-homebrew-ui):
+companion [ps5-homebrew-ui](https://github.com/BlackBearRevived/ps5-homebrew-ui):
 an OpenGL kit built on this template, with about a hundred reusable
 components, thirty themes, finished screens and a PC preview. This template
 stays a small foundation; [User interface](docs/USER_INTERFACE.md) says how
@@ -80,7 +80,7 @@ clean history. The same workflow is available through the GitHub CLI:
 
 ```bash
 gh repo create my-ps5-app \
-  --template BlackBearRedux/ps5-native-app-boilerplate \
+  --template BlackBearRevived/ps5-native-app-boilerplate \
   --private \
   --clone
 ```
@@ -149,7 +149,7 @@ the compiler cache; both settings can also go in `.env`.
 
 `ccache --show-stats` reports cache usage. `make clean` removes generated
 outputs but preserves ccache's default user cache and downloaded dependencies.
-[GitHub Actions](https://github.com/BlackBearRedux/ps5-native-app-boilerplate/actions/workflows/tooling.yml)
+[GitHub Actions](https://github.com/BlackBearRevived/ps5-native-app-boilerplate/actions/workflows/tooling.yml)
 builds the default example on pull requests, pushes to `main`, release tags,
 and nightly at 04:37 UTC. A successful build uploads the installable ZIP and
 its SHA-256 checksum. Pull request artifacts include the PR number and commit.
@@ -326,7 +326,7 @@ shipping its licence notices; the guide lists them.
 | libcurl on the console: setup, large downloads, elevated apps, troubleshooting | [docs/CURL.md](docs/CURL.md) |
 | Example title | `make update-check-example` builds `dist/PPSA99780/` |
 | Host tests | `make test-update-check` |
-| What the catalog publishes | [Store API](https://github.com/blackbearreloaded/ps5-homebrew-catalog/blob/main/docs/api.md) and [App versions](https://github.com/blackbearreloaded/ps5-homebrew-catalog/blob/main/docs/versioning.md) |
+| What the catalog publishes | [Store API](https://github.com/darkxex/ps5-homebrew-catalog/blob/main/docs/api.md) and [App versions](https://github.com/darkxex/ps5-homebrew-catalog/blob/main/docs/versioning.md) |
 
 ### Self-update
 
@@ -425,7 +425,7 @@ the console reads, and catalogs look for.
 
 > [!IMPORTANT]
 > This structure is what makes an app conformant with the
-> [ps5-homebrew-catalog](https://github.com/blackbearreloaded/ps5-homebrew-catalog), the catalog behind
+> [ps5-homebrew-catalog](https://github.com/darkxex/ps5-homebrew-catalog), the catalog behind
 > [homebrew.page](https://homebrew.page). Its automation finds your app, takes
 > its icon and reads its release version from these files at these paths.
 > Follow it and your app can be listed and updated automatically; deviate and
@@ -449,8 +449,8 @@ Why standardize on it:
   `sce_sys/param.json` at the release tag, without downloading your release.
   An app that keeps them elsewhere, or generates them only at build time, has
   to be listed by hand and can't show updates. The catalog's
-  [submission guide](https://github.com/blackbearreloaded/ps5-homebrew-catalog/blob/main/docs/submitting.md) and
-  [App versions](https://github.com/blackbearreloaded/ps5-homebrew-catalog/blob/main/docs/versioning.md) pages say what else
+  [submission guide](https://github.com/darkxex/ps5-homebrew-catalog/blob/main/docs/submitting.md) and
+  [App versions](https://github.com/darkxex/ps5-homebrew-catalog/blob/main/docs/versioning.md) pages say what else
   it expects: a GitHub release tagged with the version, and a `contentVersion`
   raised in every release.
 - **Anyone can find them.** Developers, tools and reviewers look in one place.
@@ -585,7 +585,7 @@ filesystem images. It does not create a signed retail PKG/FPKG, automate an
 exploit, alter console configuration, or bundle Sony files. GPU decoding and a
 general-purpose C library are outside this foundation. So is a user-interface
 toolkit: that lives in the separate
-[ps5-homebrew-ui](https://github.com/blackbearreloaded/ps5-homebrew-ui)
+[ps5-homebrew-ui](https://github.com/BlackBearRevived/ps5-homebrew-ui)
 project, which is built on this one.
 
 ## Contributing

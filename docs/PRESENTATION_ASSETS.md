@@ -20,7 +20,7 @@ committed to your repository:
 | `sce_sys/background-source.png`, `launch-background-source.png` | Nothing: the editable sources of the two backgrounds | PNG | Optional; never deployed |
 
 Following this layout is what makes an app conformant with the
-[ps5-homebrew-catalog](https://github.com/blackbearreloaded/ps5-homebrew-catalog), the catalog behind
+[ps5-homebrew-catalog](https://github.com/darkxex/ps5-homebrew-catalog), the catalog behind
 [homebrew.page](https://homebrew.page): its automation looks for these files
 at these paths. It is a recommendation for every app, not only for apps built
 from this template:
