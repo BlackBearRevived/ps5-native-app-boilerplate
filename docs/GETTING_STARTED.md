@@ -30,13 +30,13 @@ make doctor
 ### macOS
 
 On Apple Silicon, run the renderer and update-check host suites with Homebrew LLVM 18
-and Ninja. The macOS host tests workflow runs these same targets on the arm64 runner
+Ninja, and GNU Coreutils. The macOS host tests workflow runs these same targets on the arm64 runner
 and logs the compiler version and renderer link command.
 
 ```bash
-brew install llvm@18 ninja
+brew install llvm@18 ninja coreutils
 export PATH="$(brew --prefix llvm@18)/bin:$PATH"
-make USE_CCACHE=0 test-unit test-update-check
+make USE_CCACHE=0 HOST_TEST_LDFLAGS= test-unit test-update-check
 ```
 
 ## 2. Native dependencies

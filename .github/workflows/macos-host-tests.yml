@@ -28,12 +28,13 @@ jobs:
     timeout-minutes: 25
     env:
       USE_CCACHE: 0
+      HOST_TEST_LDFLAGS: ""
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Configure the arm64 toolchain
         run: |
           test "$(uname -m)" = arm64
-          brew install llvm@18 ninja
+          brew install llvm@18 ninja coreutils
           echo "$(brew --prefix llvm@18)/bin" >> "$GITHUB_PATH"
       - name: Run the renderer and update-check tests
         run: |
