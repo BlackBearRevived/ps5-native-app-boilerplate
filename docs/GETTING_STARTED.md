@@ -219,12 +219,11 @@ The equivalent PowerShell command is:
 ```
 
 The build also archives the folder as `dist/<TITLE_ID>.zip`. See
-[Build output and release ZIP](RELEASE_ZIP.md).
+[Build output and releases](RELEASE_ZIP.md).
 
 `runtime/libc.prx` is a generated, ignored file included in the application.
-Tagged GitHub Releases publish a ZIP of the directory-style application and its
-`SHA256SUMS`
-([Build output and release ZIP](RELEASE_ZIP.md)). Extract
-the ZIP before uploading its `<TITLE_ID>/` folder to `/data/homebrew`.
+Tagged releases include the ZIP and its `SHA256SUMS`, plus a PKG and its
+checksum for supported titles. Extract the ZIP before uploading its
+`<TITLE_ID>/` folder to `/data/homebrew`.
 
 Continue with [Deployment](DEPLOYMENT.md).

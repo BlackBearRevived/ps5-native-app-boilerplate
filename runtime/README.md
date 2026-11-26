@@ -23,9 +23,8 @@ sha256sum -c libc.prx.sha256
 ```
 
 The generated file is ignored by Git. Bare `make` also creates it as part of a
-normal application build. A tagged GitHub Release has two files, the
-app-folder ZIP and `SHA256SUMS`; `libc.prx` is not a file of its own there:
-the verified binary is inside the ZIP, beside `eboot.bin`.
+normal application build. In a tagged GitHub Release, the app-folder ZIP
+contains the verified `libc.prx` in `sce_module/`.
 
 The complete source, reproduction procedure, and compatibility scope are in
 [`tooling/native`](../tooling/native) and

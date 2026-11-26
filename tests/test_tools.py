@@ -396,7 +396,7 @@ fi
         self.assertLess(build.index("BUILD_LABEL must be"), build.index("ninja_run\n\napp="))
         self.assertIn('"/app0/build-label.txt"', (ROOT / "src/main.cpp").read_text())
 
-    def test_automation_builds_the_zip_only(self):
+    def test_automation_builds_zip_and_pkg(self):
         workflow = (ROOT / ".github/workflows/tooling.yml").read_text(encoding="utf-8")
         # The image formats are gone: nothing that builds may name them or their tools again.
         build_files = (
@@ -416,8 +416,14 @@ fi
         ):
             self.assertFalse((ROOT / "tools" / name).exists(), name)
         self.assertIn("run: make app", workflow)
+        self.assertIn("pip install --no-index --no-deps --require-hashes", workflow)
+        self.assertIn('ps5-pkgkit build "$source_dir" -o "$source_dir.pkg"', workflow)
+        self.assertIn('ps5-pkgkit verify "$source_dir.pkg"', workflow)
         self.assertIn('sha256sum "$TITLE_ID.zip" > SHA256SUMS', workflow)
+        for suffix in (".zip", ".pkg", ".pkg.sha256"):
+            self.assertIn("dist/${{ env.TITLE_ID }}" + suffix, workflow)
         self.assertIn('assets=("package/$TITLE_ID.zip" package/SHA256SUMS)', workflow)
+        self.assertIn('assets+=("package/$TITLE_ID.pkg" "package/$TITLE_ID.pkg.sha256")', workflow)
         for forbidden in ("--clobber", "delete-asset", "gh release edit"):
             self.assertNotIn(forbidden, workflow)
         build, attest = workflow.split("\n  attest:\n", 1)
@@ -425,7 +431,11 @@ fi
         self.assertIn("if: github.event_name != 'pull_request' && !github.event.repository.private", attest)
         self.assertIn("sha256sum -c --strict SHA256SUMS", attest)
         self.assertIn("uses: actions/attest@", attest)
-        self.assertIn("subject-path: package/${{ needs.build.outputs.title-id }}.zip", attest)
+        self.assertIn("subject-path: |", attest)
+        for suffix in (".zip", ".pkg"):
+            self.assertIn("package/${{ needs.build.outputs.title-id }}" + suffix, attest)
+        for job in (attest, release):
+            self.assertIn('sha256sum -c --strict "$TITLE_ID.pkg.sha256"', job)
         for permission in ("id-token: write", "attestations: write"):
             self.assertIn(permission, attest)
             self.assertNotIn(permission, build + release)

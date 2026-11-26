@@ -29,8 +29,10 @@ Two details are deliberate:
    **Actions**).
 2. Download the artifact named `<repository>-PR<number>-<commit>` from the run's
    **Artifacts** list. GitHub requires a signed-in account for this.
-3. Unpack it: it holds the app's ZIP and `SHA256SUMS`. Check the files with
-   `sha256sum -c SHA256SUMS`, then install as described in [Deployment](DEPLOYMENT.md).
+3. Unpack the artifact and check the ZIP with `sha256sum -c SHA256SUMS`.
+   For a supported title, the artifact also includes `<TITLE_ID>.pkg` and
+   `<TITLE_ID>.pkg.sha256`. Check the PKG with its own checksum file. See
+   [Deployment](DEPLOYMENT.md) for installing the title folder from the ZIP.
 
 A first-time contributor's pull request does not build until a maintainer approves the
 workflow run. That is GitHub's default for public repositories and is worth keeping: the
@@ -67,7 +69,7 @@ BUILD_LABEL="pacing test 2" make
 
 `tools/init-project.sh` leaves the workflow as it is. The pull-request name follows the
 repository's name by itself. The build workflow passes the artifact name to the
-jobs that sign provenance and publish the release ZIP.
+jobs that sign provenance and publish release files.
 
 Pull-request runs have a read-only token and no secrets, including for forks. Do not move
 this build to `pull_request_target` to post links or comments: that event runs with write

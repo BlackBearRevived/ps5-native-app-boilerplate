@@ -151,8 +151,11 @@ the compiler cache; both settings can also go in `.env`.
 outputs but preserves ccache's default user cache and downloaded dependencies.
 [GitHub Actions](https://github.com/BlackBearRevived/ps5-native-app-boilerplate/actions/workflows/tooling.yml)
 builds the default example on pull requests, pushes to `main`, release tags,
-and nightly at 04:37 UTC. A successful build uploads the installable ZIP and
-its SHA-256 checksum. Pull request artifacts include the PR number and commit.
+and nightly at 04:37 UTC. CI uploads the title-folder ZIP and its SHA-256
+checksum. For free Games-area apps, it also uses
+[ps5-pkgkit](https://github.com/BlackBearRevived/ps5-pkgkit) to build and verify
+a PS5 `.pkg` from the same staged folder. Pull request artifacts include the
+PR number and commit.
 See [Pull-request builds](docs/PULL_REQUEST_BUILDS.md).
 
 The workflow restores downloaded dependencies and ccache separately. Successful
@@ -172,8 +175,8 @@ entire directory with a compatible loader such as
 cannot be deployed by itself.
 
 Tagged releases also provide `<TITLE_ID>.zip`. Extract it locally and upload
-the enclosed `<TITLE_ID>/` folder to `/data/homebrew`; do not upload the ZIP
-itself. The ZIP is the one release format; every entry is stored as 0777.
+the enclosed `<TITLE_ID>/` folder to `/data/homebrew`. The ZIP stores every
+entry with permissions set to `0777` and serves the catalog and in-app updater.
 
 For a short development loop, build and update the title folder under
 `/data/homebrew` through an already-running FTP service:
@@ -261,12 +264,14 @@ is:
 
 To publish a release, update `contentVersion` and merge or push to `main`.
 Once CI passes, the workflow creates the version tag at the built commit and
-publishes the folder-format ZIP with `SHA256SUMS`. Later pushes with the same
-version preserve the existing release.
+publishes the folder-format ZIP with `SHA256SUMS`. Supported titles also get
+`<TITLE_ID>.pkg` and `<TITLE_ID>.pkg.sha256`. Later pushes with the same version
+preserve the existing release.
 
-Check a downloaded ZIP with `sha256sum -c SHA256SUMS`. For public releases,
-verify the signed GitHub Actions provenance using a recent GitHub CLI.
-See [Release ZIP verification](docs/RELEASE_ZIP.md#verify-a-downloaded-release).
+Check a downloaded ZIP with `sha256sum -c SHA256SUMS` or a downloaded PKG with
+`sha256sum -c <TITLE_ID>.pkg.sha256`, using the actual filename. A recent
+GitHub CLI can verify signed provenance for both public release formats.
+See [Release verification](docs/RELEASE_ZIP.md#verify-a-downloaded-release).
 
 See [Application configuration](docs/CONFIGURATION.md) for metadata fields.
 
@@ -563,7 +568,7 @@ tools/find-missing-symbols.sh Lists libc symbols a PacBrew library needs that th
 | [Application configuration](docs/CONFIGURATION.md) | `param.json`, release tags, Games/Media category, sources, and libraries |
 | [Presentation assets](docs/PRESENTATION_ASSETS.md) | Icon, selection/launch images, ATRAC9 conversion, and format limits |
 | [PacBrew dependencies](docs/PACBREW.md) | Third-party PS5 libraries, selection, caching, and limits |
-| [Build output and release ZIP](docs/RELEASE_ZIP.md) | The folder and its ZIP; how a release is published |
+| [Build output and releases](docs/RELEASE_ZIP.md) | ZIP and PKG artifacts, publishing, and verification |
 | [Native build tooling](docs/NATIVE_TOOLING.md) | LLVM boundary and C++ converter/FSELF commands |
 | [Clean-room runtime shim](docs/RUNTIME_SHIM.md) | Design, hashes, compatibility, and deterministic reproduction |
 | [Deployment](docs/DEPLOYMENT.md) | FTP staging, title-scoped cleanup, and smoke testing |

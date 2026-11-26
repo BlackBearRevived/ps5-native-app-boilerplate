@@ -149,10 +149,32 @@ jobs:
       - name: Verify generated runtime is unchanged
         run: cd runtime && sha256sum -c libc.prx.sha256
 
-      # The ZIP is the one release format: the in-app update worker and ProsperoStore
-      # install from it.
+      # The in-app update worker and ProsperoStore install from the folder ZIP.
       - name: Build the release folder and ZIP
         run: make app
+
+      - name: Build and verify the PS5 package
+        shell: bash
+        run: |
+          source_dir="dist/$TITLE_ID"
+          supported=$(python3 -c '
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              app = json.load(stream)
+          print(app.get("applicationCategoryType") == 0 and app.get("applicationDrmType") == "free")
+          ' "$source_dir/sce_sys/param.json")
+          if [[ $supported != True ]]; then
+            echo "::notice::ps5-pkgkit v0.1.0 supports free Games-area apps only. Skipping the PKG."
+            exit 0
+          fi
+
+          python -m pip install --no-index --no-deps --require-hashes \
+            'https://github.com/BlackBearRevived/ps5-pkgkit/releases/download/v0.1.0/ps5_pkgkit-0.1.0-py3-none-any.whl#sha256=71cfa598c509322c6752c094486935a8334d7cf0fceb73e838810e46a3823541'
+          ps5-pkgkit build "$source_dir" -o "$source_dir.pkg"
+          ps5-pkgkit verify "$source_dir.pkg"
+          (cd dist && sha256sum "$TITLE_ID.pkg" > "$TITLE_ID.pkg.sha256")
 
       - name: Report compiler cache statistics
         if: always()
@@ -174,6 +196,8 @@ jobs:
           path: |
             dist/${{ env.TITLE_ID }}.zip
             dist/SHA256SUMS
+            dist/${{ env.TITLE_ID }}.pkg
+            dist/${{ env.TITLE_ID }}.pkg.sha256
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
@@ -198,7 +222,7 @@ jobs:
           key: ${{ steps.compiler.outputs.cache-primary-key }}
 
   attest:
-    name: Attest folder ZIP
+    name: Attest PS5 build artifacts
     needs: build
     if: github.event_name != 'pull_request' && !github.event.repository.private
     runs-on: ubuntu-24.04
@@ -209,21 +233,28 @@ jobs:
       attestations: write
 
     steps:
-      - name: Download and check this run's ZIP
+      - name: Download and check this run's build
         env:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT: ${{ needs.build.outputs.artifact }}
+          TITLE_ID: ${{ needs.build.outputs.title-id }}
         run: |
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$ARTIFACT" --dir package
-          (cd package && sha256sum -c --strict SHA256SUMS)
+          cd package
+          sha256sum -c --strict SHA256SUMS
+          if [[ -e "$TITLE_ID.pkg" || -e "$TITLE_ID.pkg.sha256" ]]; then
+            sha256sum -c --strict "$TITLE_ID.pkg.sha256"
+          fi
 
       - name: Sign GitHub Actions build provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
-          subject-path: package/${{ needs.build.outputs.title-id }}.zip
+          subject-path: |
+            package/${{ needs.build.outputs.title-id }}.zip
+            package/${{ needs.build.outputs.title-id }}.pkg
 
   release:
-    name: Publish folder-format release
+    name: Publish PS5 release
     needs: [build, attest]
     if: >-
       !cancelled() && needs.build.result == 'success' &&
@@ -276,13 +307,16 @@ jobs:
             echo "existing=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Download and check the folder ZIP
+      - name: Download and check the release files
         if: steps.plan.outputs.publish == 'true'
         run: |
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$ARTIFACT" --dir package
           cd package
           test -s "$TITLE_ID.zip"
           sha256sum -c --strict SHA256SUMS
+          if [[ -e "$TITLE_ID.pkg" || -e "$TITLE_ID.pkg.sha256" ]]; then
+            sha256sum -c --strict "$TITLE_ID.pkg.sha256"
+          fi
 
       - name: Create the version tag
         if: steps.plan.outputs.create_tag == 'true'
@@ -290,7 +324,7 @@ jobs:
           gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
             -f ref="refs/tags/$TAG" -f sha="$SOURCE_SHA" --jq .ref
 
-      - name: Publish the ZIP and checksum
+      - name: Publish the release files
         if: steps.plan.outputs.publish == 'true'
         env:
           EXISTING: ${{ steps.plan.outputs.existing }}
@@ -298,6 +332,9 @@ jobs:
           set -euo pipefail
           test "$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha)" = "$SOURCE_SHA"
           assets=("package/$TITLE_ID.zip" package/SHA256SUMS)
+          if [[ -f "package/$TITLE_ID.pkg" ]]; then
+            assets+=("package/$TITLE_ID.pkg" "package/$TITLE_ID.pkg.sha256")
+          fi
           if [[ $EXISTING == true ]]; then
             gh release upload "$TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY"
           else
