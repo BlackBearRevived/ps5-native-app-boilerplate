@@ -404,6 +404,25 @@ Bytes build_version(std::span<const std::string> components, std::uint32_t modul
     return output;
 }
 
+// RELRO begins at its lowest section. lld drops an empty .data.rel.ro, so a
+// program without relocated read-only data starts RELRO at the GOT or an
+// initializer array instead; the anchor must follow whichever section lld kept.
+const Section &relro_origin(const Image &image, std::uint64_t relro_start)
+{
+    const Section *origin = nullptr;
+    for (const Section &input : image.sections)
+    {
+        if (!input.allocated() || !relro_section(input.name) || input.address != relro_start)
+            continue;
+        if (input.name == ".data.rel.ro")
+            return input;
+        if (origin == nullptr)
+            origin = &input;
+    }
+    require(origin != nullptr, "RELRO mapping has no section at its start address");
+    return *origin;
+}
+
 struct Import
 {
     std::string plain;
@@ -840,7 +859,7 @@ Bytes write_executable(const Image &image, std::span<const Stub> stubs, const Op
             continue;
         copy_bytes(output, input.file_offset, input.data);
     }
-    const std::uint64_t relro_file = got.file_offset;
+    const std::uint64_t relro_file = relro_origin(image, relro_start).file_offset;
     copy_bytes(output, relro_file + process_address - relro_start, process_parameters);
     copy_bytes(output, relro_file + blocks_address - relro_start, blocks.data);
     copy_bytes(output, dynamic_file_at(string_address), dynamic_strings);
